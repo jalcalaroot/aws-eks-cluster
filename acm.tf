@@ -1,0 +1,44 @@
+# Homologo de acme.tf, pero mas simple: en Azure el cert de Let's Encrypt
+# termina en un Kubernetes Secret que un humano crea a mano
+# (kubectl create secret tls), y hay que repetir ese paso en cada renovacion
+# porque AGIC lee el Secret, no Key Vault. Aca el cert vive en ACM y el ALB
+# Controller lo referencia DIRECTO por ARN en una annotation del Ingress
+# (ver k8s/ingress.yaml) - nunca toca Kubernetes, y ACM renueva solo
+# (DNS-01 ya validado, sin limite de 5 duplicados/semana como Let's Encrypt).
+resource "aws_acm_certificate" "this" {
+  domain_name       = local.fqdn
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = local.tags
+}
+
+resource "aws_route53_record" "cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.this.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  zone_id         = var.dns_zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  ttl             = 60
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "this" {
+  certificate_arn         = aws_acm_certificate.this.arn
+  validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
+}
+
+# Registro A del FQDN final -> apunta al ALB una vez que el ALB Controller
+# lo crea (alias record, sin IP fija - el ALB Controller lo actualiza el
+# nombre pero no gestiona este registro; se apunta al DNS name del ALB via
+# data source una vez que el Ingress ya esta aplicado, ver README paso 5).

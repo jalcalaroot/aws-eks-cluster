@@ -1,0 +1,30 @@
+# Reemplazar <ACM_CERTIFICATE_ARN> por `terraform output -raw acm_certificate_arn`
+# antes de aplicar - ver README.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello-world
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # target-type: ip es OBLIGATORIO en Fargate - no hay instancia EC2
+    # detras del pod para usar "instance" (el default), el ALB tiene que
+    # apuntar directo a la IP del pod dentro de la VPC.
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/certificate-arn: <ACM_CERTIFICATE_ARN>
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}, {"HTTP":80}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+spec:
+  # spec.ingressClassName (no la annotation vieja kubernetes.io/ingress.class)
+  # - mismo tipo de gotcha que con AGIC: usar el nombre de clase incorrecto
+  # deja al controller sin procesar el Ingress, sin error visible.
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello-world
+                port:
+                  number: 80
