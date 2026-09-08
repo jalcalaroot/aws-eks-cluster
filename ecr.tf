@@ -1,8 +1,7 @@
-# Homologo de acr.tf. Sin admin user (no existe ese concepto en ECR) - el
-# pull lo hace el Fargate pod execution role via la policy administrada
+# El pull lo hace el Fargate pod execution role via la policy administrada
 # (ver eks.tf), sin secrets ni credenciales embebidas.
 resource "aws_ecr_repository" "this" {
-  #checkov:skip=CKV_AWS_51:MUTABLE a proposito - se itera re-pusheando el tag "latest" mientras se prueba el hello-world, igual que el flujo documentado para ACR (sin retention policy de Premium ahi tampoco)
+  #checkov:skip=CKV_AWS_51:MUTABLE a proposito - se itera re-pusheando el tag "latest" mientras se prueba el hello-world
   name                 = var.ecr_repository_name
   image_tag_mutability = "MUTABLE"
 

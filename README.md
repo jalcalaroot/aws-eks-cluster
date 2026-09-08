@@ -70,7 +70,6 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
    terraform apply \
      -var "network_compute_subnet_ids=[\"subnet-...\", \"subnet-...\"]" \
      -var "network_public_subnet_ids=[\"subnet-...\", \"subnet-...\"]" \
-     -var "network_vpc_id=vpc-..." \
      -var "dns_zone_id=Z..."
    ```
 
@@ -131,7 +130,7 @@ terraform destroy
 |---|---|---|
 | `aws_region` | `us-east-1` | |
 | `owner` | `johan` | for resource tags |
-| `network_compute_subnet_ids` / `network_public_subnet_ids` / `network_vpc_id` | — | from the network project |
+| `network_compute_subnet_ids` / `network_public_subnet_ids` | — | from the network project |
 | `dns_zone_id` | — | Route 53 hosted zone ID |
 | `cluster_name` | `eks-cluster` | |
 | `kubernetes_version` | `null` | latest EKS-supported version if unset |
@@ -155,12 +154,17 @@ terraform destroy
 
 GitHub Actions, authenticated to AWS via OIDC — no secrets or static credentials stored in GitHub.
 
-| Identity | Trigger | Access |
-|---|---|---|
-| `eks-cluster-ci-agent` | Push to `main` | Scoped to this project's resources only, plus a cluster Access Entry with admin policy |
-| `eks-cluster-ci-plan` | Pull request | Read-only |
+| Workflow | Trigger | Identity | What it does |
+|---|---|---|---|
+| `terraform-plan.yml` | Pull request | `eks-cluster-ci-plan` (read-only) | `fmt -check`, `validate`, tflint, Checkov (blocking, SARIF uploaded to the Security tab), `plan`, posts the plan as a PR comment |
+| `terraform-apply.yml` | Push to `main` | `eks-cluster-ci-agent` (scoped to this project's resources only, plus a cluster Access Entry) | `plan` + `apply` |
+| `gitleaks.yml` | PR / push to `main` | — | Secret scanning |
 
-Both roles are scoped resource-by-resource, never a blanket policy — see [CLAUDE.md](CLAUDE.md) for the full IAM breakdown, including the note on why the CI policy is a draft that still needs verifying against a real `terraform plan` before production use.
+Both IAM roles are scoped resource-by-resource, never a blanket policy — see [CLAUDE.md](CLAUDE.md) for the full breakdown, including the note on why the CI policy is a draft that still needs verifying against a real `terraform plan` before production use.
+
+Required GitHub repository variables (Settings → Secrets and variables → Actions → Variables): `OWNER`, `NETWORK_COMPUTE_SUBNET_IDS`, `NETWORK_PUBLIC_SUBNET_IDS` (both as a JSON array, e.g. `["subnet-a","subnet-b"]`), `DNS_ZONE_ID`.
+
+Dependabot (`.github/dependabot.yml`) keeps Terraform providers and GitHub Actions versions current, weekly. A local `pre-commit` hook (`.pre-commit-config.yaml`) runs gitleaks + `terraform fmt` before a secret or a formatting issue ever leaves the machine.
 
 ## Cost
 

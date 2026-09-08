@@ -1,8 +1,7 @@
 # Identidades de CI para GitHub Actions via OIDC - sin ningun secreto AWS
 # almacenado en GitHub. "agent" (apply, push a main) y "plan" (solo lectura,
 # PRs), RBAC acotado recurso por recurso, mismo patron que
-# azure-aks-cluster/ci_identities.tf y que jalcalaroot-aws-bootstrap/
-# terraform/environments/dev/iam.tf.
+# jalcalaroot-aws-bootstrap/terraform/environments/dev/iam.tf.
 #
 # El sub claim usa el sub_claim_prefix personalizado de esta cuenta de
 # GitHub (formato "repo:OWNER@OWNER_ID/REPO@REPO_ID:...", NO el immutable

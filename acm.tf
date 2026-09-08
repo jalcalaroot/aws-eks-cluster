@@ -1,10 +1,7 @@
-# Homologo de acme.tf, pero mas simple: en Azure el cert de Let's Encrypt
-# termina en un Kubernetes Secret que un humano crea a mano
-# (kubectl create secret tls), y hay que repetir ese paso en cada renovacion
-# porque AGIC lee el Secret, no Key Vault. Aca el cert vive en ACM y el ALB
-# Controller lo referencia DIRECTO por ARN en una annotation del Ingress
-# (ver k8s/ingress.yaml) - nunca toca Kubernetes, y ACM renueva solo
-# (DNS-01 ya validado, sin limite de 5 duplicados/semana como Let's Encrypt).
+# El cert vive en ACM y el ALB Controller lo referencia DIRECTO por ARN en
+# una annotation del Ingress (ver k8s/ingress.yaml) - nunca toca Kubernetes,
+# ni un Secret ni un paso manual de renovacion. ACM renueva solo mientras
+# exista el registro de validacion DNS en Route53.
 resource "aws_acm_certificate" "this" {
   domain_name       = local.fqdn
   validation_method = "DNS"

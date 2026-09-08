@@ -1,11 +1,7 @@
-# Cluster 100% Fargate: a diferencia de AKS (que SIEMPRE necesita un node
-# pool real para CoreDNS/kube-proxy/CNI, porque Virtual Nodes/ACI no da
-# hostNetwork), EKS Fargate no corre kube-proxy ni el daemonset del VPC CNI
-# en absoluto - AWS maneja el networking de cada pod directo via ENI
-# trunking. CoreDNS SI puede correr en Fargate una vez parcheado (ver
-# README). Resultado: no hace falta ningun EC2/node pool real en este
-# proyecto - simplificacion real vs el companion "system" node pool que
-# aks.tf necesita.
+# Cluster 100% Fargate: no corre kube-proxy ni el daemonset del VPC CNI en
+# absoluto - AWS maneja el networking de cada pod directo via ENI trunking.
+# CoreDNS SI puede correr en Fargate una vez parcheado (ver README).
+# Resultado: no hace falta ningun EC2/node pool real en este proyecto.
 resource "aws_iam_role" "cluster" {
   name = "${var.cluster_name}-cluster"
 
@@ -101,10 +97,8 @@ resource "aws_iam_role" "fargate_pod_execution" {
 }
 
 # AmazonEKSFargatePodExecutionRolePolicy ya incluye
-# ecr:GetAuthorizationToken/BatchGetImage/GetDownloadUrlForLayer - a
-# diferencia del ACI Connector en Azure (que NO trae identidad propia y
-# obliga a un imagePullSecret manual por pod), aca el pull de ECR funciona
-# sin ningun secret adicional.
+# ecr:GetAuthorizationToken/BatchGetImage/GetDownloadUrlForLayer - el pull
+# de ECR funciona sin ningun imagePullSecret ni credencial adicional.
 resource "aws_iam_role_policy_attachment" "fargate_pod_execution_policy" {
   role       = aws_iam_role.fargate_pod_execution.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy"
@@ -125,10 +119,9 @@ resource "aws_eks_fargate_profile" "kube_system" {
   tags = local.tags
 }
 
-# Namespace default: el hello-world. En Azure, que un pod caiga en Virtual
-# Nodes se decide DENTRO del pod (nodeSelector + tolerations). En Fargate
-# es al reves: el targeting se decide ACA, a nivel de Fargate Profile
-# (namespace/labels) - el pod no necesita nada especial en su spec.
+# Namespace default: el hello-world. El targeting a Fargate se decide ACA,
+# a nivel de Fargate Profile (namespace/labels) - el pod no necesita nada
+# especial en su spec.
 resource "aws_eks_fargate_profile" "default" {
   cluster_name           = aws_eks_cluster.this.name
   fargate_profile_name   = "default"

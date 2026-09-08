@@ -1,8 +1,6 @@
-# IRSA para el AWS Load Balancer Controller - homologo de las
-# azurerm_role_assignment que le dan permisos a la managed identity de AGIC
-# en aks.tf. Aca el mecanismo es distinto (federated OIDC role vs Azure RBAC
-# role assignment) pero el resultado es el mismo: el controller obtiene
-# permiso para gestionar el load balancer sin credenciales estaticas.
+# IRSA para el AWS Load Balancer Controller - le da permiso al controller
+# para gestionar el load balancer sin credenciales estaticas, asumiendo un
+# rol IAM federado via el OIDC provider del propio cluster.
 #
 # La policy IAM oficial (AWSLoadBalancerControllerIAMPolicy) es grande y
 # cambia entre versiones del controller - en vez de escribirla a mano desde

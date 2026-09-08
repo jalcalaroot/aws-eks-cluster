@@ -15,7 +15,7 @@ variable "owner" {
 
 # ============================================================================
 # Red compartida (jalcalaroot-aws-bootstrap / aws-vpc) - valores copiados a
-# mano, sin terraform_remote_state, mismo patron que el lado Azure.
+# mano, sin terraform_remote_state.
 # ============================================================================
 
 variable "network_compute_subnet_ids" {
@@ -26,11 +26,6 @@ variable "network_compute_subnet_ids" {
 variable "network_public_subnet_ids" {
   description = "Subnets publicas (tier public de aws-vpc) - donde el AWS Load Balancer Controller crea el ALB internet-facing. Necesitan el tag kubernetes.io/role/elb para que el controller las descubra (ver alb_controller.tf)."
   type        = list(string)
-}
-
-variable "network_vpc_id" {
-  description = "ID de la VPC compartida (vpc-jalcalaroot)"
-  type        = string
 }
 
 variable "github_oidc_provider_arn" {
