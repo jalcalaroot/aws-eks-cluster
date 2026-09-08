@@ -4,16 +4,15 @@
 # azure-aks-cluster/ci_identities.tf y que jalcalaroot-aws-bootstrap/
 # terraform/environments/dev/iam.tf.
 #
-# TODO antes de aplicar: el sub claim usa el sub_claim_prefix personalizado
-# de esta cuenta de GitHub (formato "repo:OWNER@OWNER_ID/REPO@REPO_ID:...",
-# NO el immutable subject default) - confirmado en los dos proyectos de
-# referencia via `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`.
-# El REPO_ID de "aws-eks-cluster" no se conoce hasta crear el repo en GitHub;
-# reemplazar el placeholder <REPO_ID> de abajo antes de aplicar (y verificar
-# con el mismo comando `gh api`).
+# El sub claim usa el sub_claim_prefix personalizado de esta cuenta de
+# GitHub (formato "repo:OWNER@OWNER_ID/REPO@REPO_ID:...", NO el immutable
+# subject default) - confirmado para este repo especifico via
+# `gh api repos/jalcalaroot/aws-eks-cluster/actions/oidc/customization/sub`
+# el 2026-09-08, mismo dia de creacion del repo:
+# {"use_default":true,"use_immutable_subject":false,"sub_claim_prefix":"repo:jalcalaroot@22682982/aws-eks-cluster@1361551904"}
 
 locals {
-  github_repo_subject_prefix = "repo:jalcalaroot@22682982/aws-eks-cluster@<REPO_ID>"
+  github_repo_subject_prefix = "repo:jalcalaroot@22682982/aws-eks-cluster@1361551904"
 }
 
 data "aws_iam_policy_document" "ci_agent_assume_role" {

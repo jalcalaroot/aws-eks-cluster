@@ -28,9 +28,9 @@ El control plane de EKS cuesta ~$0.10/hora (~$73/mes) **siempre**, tengas o no p
 
 A diferencia de `jalcalaroot-aws-bootstrap/terraform/environments/dev/iam.tf` (cuya policy se generó con IAM Policy Autopilot a partir de un `terraform show -json` real y se recortó a mano), la policy de `ci_identities.tf` en este proyecto es un borrador razonado a partir de qué recursos crea el código — **no pasó por ese mismo proceso de verificación empírica todavía**. Antes de confiar en esto para un pipeline de CI real: correr `terraform plan` con credenciales amplias, generar el borrador de policy desde ese plan, y recortar a mano como se hizo en el bootstrap.
 
-## OIDC subject claim — placeholder sin resolver
+## OIDC subject claim — resuelto
 
-`ci_identities.tf` tiene un placeholder literal `<REPO_ID>` en el sub claim (formato `repo:jalcalaroot@22682982/aws-eks-cluster@<REPO_ID>:...`) — confirmado como el formato correcto (sub_claim_prefix personalizado, no el immutable subject default) contra los dos precedentes reales de esta cuenta (`azure-aks-cluster` y `jalcalaroot-aws-bootstrap`), pero el ID numérico del repo no existe hasta crear `aws-eks-cluster` en GitHub. Reemplazar y verificar con `gh api repos/jalcalaroot/aws-eks-cluster/actions/oidc/customization/sub` antes de aplicar — no asumir.
+Repo creado el 2026-09-08 (`jalcalaroot/aws-eks-cluster`, id `1361551904`, público). El sub claim en `ci_identities.tf` usa `repo:jalcalaroot@22682982/aws-eks-cluster@1361551904:...` — confirmado ese mismo día vía `gh api repos/jalcalaroot/aws-eks-cluster/actions/oidc/customization/sub` (mismo sub_claim_prefix personalizado que `azure-aks-cluster` y `jalcalaroot-aws-bootstrap`, no el immutable subject default). Si el repo se renombra en el futuro, este ID sigue siendo válido (es estable, la parte de texto no) pero **hay que volver a correr ese mismo `gh api` para confirmarlo** — no asumir que el ID no cambió solo porque el nombre visible cambió.
 
 ## Backend
 
@@ -47,6 +47,5 @@ Ninguno — proyecto hoja, nada más lee sus outputs.
 ## Pendiente antes de un apply real
 
 1. Descargar `policies/aws-load-balancer-controller-iam-policy.json` (ver README)
-2. Crear el repo `aws-eks-cluster` en GitHub, resolver `<REPO_ID>` en `ci_identities.tf`
-3. Completar `network_compute_subnet_ids`/`network_public_subnet_ids`/`network_vpc_id`/`dns_zone_id` con los valores reales de `aws-vpc`/`jalcalaroot-aws-bootstrap` (no tienen default a propósito, mismo patrón que `subscription_id` del lado Azure — obliga a pasarlos explícitamente, sin un default que invite a aplicar sobre la red equivocada)
-4. Revisar el borrador de IAM policy de CI contra un plan real (ver arriba)
+2. Completar `network_compute_subnet_ids`/`network_public_subnet_ids`/`network_vpc_id`/`dns_zone_id` con los valores reales de `aws-vpc`/`jalcalaroot-aws-bootstrap` (no tienen default a propósito, mismo patrón que `subscription_id` del lado Azure — obliga a pasarlos explícitamente, sin un default que invite a aplicar sobre la red equivocada)
+3. Revisar el borrador de IAM policy de CI contra un plan real (ver arriba)
