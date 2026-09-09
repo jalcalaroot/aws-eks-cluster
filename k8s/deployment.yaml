@@ -1,0 +1,38 @@
+# Reemplazar <ECR_REPOSITORY_URL> por el valor real de `terraform output -raw
+# ecr_repository_url` antes de aplicar - ver README.
+#
+# A diferencia de deployment.yaml en Azure, ESTE manifest no necesita
+# nodeSelector ni tolerations: el targeting a Fargate se decide en Terraform
+# (el Fargate Profile "default" selecciona por namespace, ver eks.tf), no
+# en el spec del pod.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-world
+  labels:
+    app: hello-world
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello-world
+  template:
+    metadata:
+      labels:
+        app: hello-world
+    spec:
+      containers:
+        - name: hello-world
+          image: <ECR_REPOSITORY_URL>:latest
+          ports:
+            - containerPort: 80
+          # Fargate redondea cada pod a la combinacion soportada de
+          # vCPU/memoria mas cercana (no exige requests == limits como ACI,
+          # pero se fijan iguales aca por prolijidad/previsibilidad).
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
