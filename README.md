@@ -5,25 +5,35 @@ A hello-world container served over HTTPS on a custom domain, running on **Amazo
 ## Architecture
 
 ```
-                                    Internet
-                                       |
-                    One shared Application Load Balancer (ALB Ingress
-                    Group "eks-demo-apps") - SNI: one ACM cert per host
-                                       |
-                    ───── VPC-internal only below this line ─────
-                                       |
-                            EKS cluster (control plane, AWS-managed)
-       ┌─────────────────────┬─────────────────────┬─────────────────────┐
-  kube-system              default                argocd
-  CoreDNS + ALB Ctlr    hello-world pod       Argo CD (server, repo-server,
-  (Fargate profile)     (Fargate profile)      app-controller, redis, dex...)
-                         eks.aws.jalcalaroot     (Fargate profile)
-                         .com                    argocd.aws.jalcalaroot.com
+Route 53 (aws.jalcalaroot.com)
+ ├─ eks.aws.jalcalaroot.com    ──┐
+ └─ argocd.aws.jalcalaroot.com ──┤
+                                  ▼
+       One shared Application Load Balancer (Ingress Group "eks-demo-apps")
+       SNI: one ACM cert per host
+                                  │
+       ───── VPC-internal only below this line ─────
+                                  │
+EKS cluster (control plane, AWS-managed)
+ ├─ Fargate Profile "kube-system"
+ │    ├─ CoreDNS
+ │    └─ ALB Controller (IRSA)
+ ├─ Fargate Profile "default"
+ │    └─ hello-world (Deployment, image: ECR)
+ ├─ Fargate Profile "argocd"
+ │    └─ Argo CD (Helm)
+ │         ├─ server, repo-server, application-controller,
+ │         │  redis, dex, notifications...
+ │         └─ GitOps target: k8s-apps (separate repo)
+ └─ Fargate Profile "keda"
+      └─ KEDA (Helm)
+           ├─ operator, metrics-apiserver, admission-webhooks
+           └─ no ScaledObject configured yet - installed as base platform
 ```
 
-The Application Load Balancer is the only public entry point, shared by every app via `alb.ingress.kubernetes.io/group.name` — one ALB, not one per app (real hourly + LCU cost otherwise). Every pod in the cluster — system and workload alike — runs on Fargate: there is no EC2 node group anywhere in this project. Which pods land on Fargate is decided in Terraform, via **Fargate Profiles** that select pods by namespace (`eks.tf`), not in the pod spec itself — each namespace (`kube-system`, `default`, `argocd`) needs its own profile before anything scheduled into it can start.
+The Application Load Balancer is the only public entry point, shared by every app via `alb.ingress.kubernetes.io/group.name` — one ALB, not one per app (real hourly + LCU cost otherwise). Every pod in the cluster — system and workload alike — runs on Fargate: there is no EC2 node group anywhere in this project. Which pods land on Fargate is decided in Terraform, via **Fargate Profiles** that select pods by namespace (`eks.tf`), not in the pod spec itself — each namespace (`kube-system`, `default`, `argocd`, `keda`) needs its own profile before anything scheduled into it can start.
 
-Argo CD (installed here via Helm, not Terraform — see Usage) is the GitOps controller for application deployments; it watches [`aws-eks-apps`](https://github.com/jalcalaroot/aws-eks-apps) and syncs the cluster automatically. This repo only owns the cluster infrastructure and Argo CD's own installation — not the apps it deploys.
+Argo CD (installed here via Helm, not Terraform — see Usage) is the GitOps controller for application deployments; it watches [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) and syncs the cluster automatically. This repo only owns the cluster infrastructure and Argo CD's own installation — not the apps it deploys.
 
 This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider provisioned by a sibling bootstrap project; it does not create its own network. Design rationale and implementation notes live in [CLAUDE.md](CLAUDE.md).
 
@@ -34,7 +44,8 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
 | EKS cluster | Managed Kubernetes control plane, `authentication_mode = API` (Access Entries, no `aws-auth` ConfigMap) | [Amazon EKS](https://aws.amazon.com/eks/) |
 | Fargate profiles (`kube-system`, `default`) | Serverless compute for every pod in the cluster — CoreDNS, the ALB Controller, and the hello-world app | [Fargate Pod execution role](https://docs.aws.amazon.com/eks/latest/userguide/pod-execution-role.html) |
 | AWS Load Balancer Controller (IRSA) | Public entry point; provisions and reconfigures the ALB automatically from Kubernetes `Ingress` resources | [AWS Load Balancer Controller](https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html) |
-| Argo CD (Helm, `argocd` namespace) | GitOps controller — watches [`aws-eks-apps`](https://github.com/jalcalaroot/aws-eks-apps) and syncs the cluster; UI at `argocd.aws.jalcalaroot.com` | [argo-cd chart](https://github.com/argoproj/argo-helm) |
+| Argo CD (Helm, `argocd` namespace) | GitOps controller — watches [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) and syncs the cluster; UI at `argocd.aws.jalcalaroot.com` | [argo-cd chart](https://github.com/argoproj/argo-helm) |
+| KEDA (Helm, `keda` namespace) | Event-driven pod autoscaling — installed as base platform, no `ScaledObject` configured yet | [KEDA docs](https://keda.sh/docs/latest/) |
 | Amazon ECR repository | Hosts the `hello-world` image | [Amazon ECR private repositories](https://docs.aws.amazon.com/AmazonECR/latest/userguide/Repositories.html) |
 | ACM certificates (x2, DNS validation) | One per public host (`eks.*`, `argocd.*`), issued and auto-renewed by AWS, validated via Route 53 CNAME records | [ACM DNS validation](https://docs.aws.amazon.com/acm/latest/userguide/dns-validation.html) |
 | Cluster OIDC provider (IRSA) | Lets in-cluster ServiceAccounts (the ALB Controller) assume IAM roles without static credentials | [IAM roles for service accounts](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html) |
@@ -116,7 +127,7 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
    kubectl apply -f k8s/
    ```
 
-8. **Install Argo CD** (GitOps controller for [`aws-eks-apps`](https://github.com/jalcalaroot/aws-eks-apps) — not managed by Terraform, same reasoning as the ALB Controller). `server.insecure` avoids double-TLS: the ALB already terminates HTTPS, the backend can talk plain HTTP:
+8. **Install Argo CD** (GitOps controller for [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) — not managed by Terraform, same reasoning as the ALB Controller). `server.insecure` avoids double-TLS: the ALB already terminates HTTPS, the backend can talk plain HTTP:
    ```bash
    helm repo add argo https://argoproj.github.io/argo-helm
    cat > /tmp/argocd-values.yaml <<EOF
@@ -147,11 +158,19 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
    ```
 
 10. Visit `https://$(terraform output -raw fqdn)` and `https://$(terraform output -raw argocd_fqdn)`.
+11. **Install KEDA** (event-driven pod autoscaling — not managed by Terraform, same reasoning as the other Helm installs). No values file needed: the chart's default resource requests are already valid on Fargate, and its webhook certificate is self-managed (no cert-manager dependency):
+    ```bash
+    helm repo add kedacore https://kedacore.github.io/charts
+    helm install keda kedacore/keda --version 2.20.2 -n keda --create-namespace
+    ```
+    Installed as base platform infrastructure — no `ScaledObject` configured yet, since there's no app with variable load to scale.
 
 ```bash
 kubectl delete -f k8s/
 helm uninstall argocd -n argocd
 kubectl delete ns argocd
+helm uninstall keda -n keda
+kubectl delete ns keda
 helm uninstall aws-load-balancer-controller -n kube-system
 terraform destroy
 ```
