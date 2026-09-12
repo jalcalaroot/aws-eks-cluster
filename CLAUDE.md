@@ -1,6 +1,6 @@
 # aws-eks-cluster
 
-Hello-world container en EKS, corriendo 100% en Fargate (sin node pool EC2), expuesto vía AWS Load Balancer Controller con un certificado de ACM, imagen en un repo ECR dedicado, monitoreado vía Container Insights (CloudWatch). También aloja **Argo CD** (Helm, namespace `argocd`) — el controller GitOps que sincroniza [`aws-eks-apps`](https://github.com/jalcalaroot/aws-eks-apps) contra este cluster; ver README para el install completo.
+Hello-world container en EKS, corriendo 100% en Fargate (sin node pool EC2), expuesto vía AWS Load Balancer Controller con un certificado de ACM, imagen en un repo ECR dedicado, monitoreado vía Container Insights (CloudWatch). También aloja **Argo CD** (Helm, namespace `argocd`) — el controller GitOps que sincroniza [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) contra este cluster; ver README para el install completo.
 
 ## Decisiones de diseño
 
@@ -14,7 +14,7 @@ Hello-world container en EKS, corriendo 100% en Fargate (sin node pool EC2), exp
 - **`target-type: ip` es obligatorio en el Ingress**, no opcional — sin instancia EC2 detrás del pod, el ALB no tiene un "instance target" al que apuntar (el default del controller). Si falta, el ALB Controller no crea target groups funcionales, sin error visible.
 - **Access Entries (API) en vez de aws-auth ConfigMap.** `authentication_mode = "API"` + `aws_eks_access_entry`/`aws_eks_access_policy_association` dan acceso al humano y al rol de CI declarativamente en Terraform, sin depender de `kubectl` para bootstrapear el RBAC inicial.
 - **El ALB Controller necesita `vpcId`/`region` explícitos en el Helm install.** Por defecto intenta auto-descubrir el VPC vía metadata de instancia EC2 (IMDS) - que no existe en Fargate (no hay instancia EC2 detrás del pod). Sin esto, crash-loops al arrancar con `failed to get VPC ID: ... ec2imds: GetMetadata, request canceled`. Encontrado en el primer deploy real (ver "Deploy real" abajo).
-- **Todo namespace nuevo necesita su propio Fargate Profile, sin excepciones.** `argocd` no es distinto de `default` en esto - se agregó `aws_eks_fargate_profile.argocd` en `eks.tf` antes de instalar Argo, o los pods se hubieran quedado `Pending` para siempre. Documentado también del lado de `aws-eks-apps/CLAUDE.md` para cualquier app nueva que necesite namespace propio.
+- **Todo namespace nuevo necesita su propio Fargate Profile, sin excepciones.** `argocd` no es distinto de `default` en esto - se agregó `aws_eks_fargate_profile.argocd` en `eks.tf` antes de instalar Argo, o los pods se hubieran quedado `Pending` para siempre. Documentado también del lado de `k8s-apps/CLAUDE.md` para cualquier app nueva que necesite namespace propio.
 - **Argo CD corre con `server.insecure: true`.** El ALB ya termina TLS con el cert de ACM - si el backend de Argo también sirve HTTPS (su default), queda un mismatch/redirect loop. `insecure` hace que el pod sirva HTTP plano puertas adentro, mismo patrón que cualquier otra app detrás de este ALB.
 - **Un ALB compartido entre apps, via `alb.ingress.kubernetes.io/group.name`.** `hello-world` y Argo CD comparten el mismo Application Load Balancer (grupo `eks-demo-apps`) en vez de uno cada uno - el listener HTTPS soporta varios certs por SNI, uno por host. Requiere que CADA Ingress del grupo tenga `spec.rules[].host` explícito - sin eso, una regla sin host matchea cualquier hostname que llegue, tapando las reglas de las otras apps del grupo (le pasó a `hello-world`: su Ingress original no tenía `host`, funcionaba bien solo, y hubiera roto el ruteo de Argo si no se corregía al agregarlo al grupo).
 - **Agregar `group.name` a un Ingress existente cambia la identidad del ALB.** El ALB de grupo es un recurso distinto al ALB standalone que tenía `hello-world` antes - al aplicar el cambio, el ALB viejo se borra y aparece uno nuevo con DNS name distinto. **El registro Route 53 que apuntaba al ALB viejo queda huérfano/roto** hasta que se actualiza a mano al nuevo DNS name - pasó en la práctica, `eks.aws.jalcalaroot.com` dejó de resolver hasta corregir el CNAME.
@@ -92,6 +92,32 @@ Encontrado en el camino (además del gotcha de S3 de arriba, que se manifestó d
 
 Verificado end-to-end: `https://argocd.aws.jalcalaroot.com` responde 200 (7 pods de Argo `1/1 Running`), `https://eks.aws.jalcalaroot.com` sigue funcionando en el mismo ALB compartido tras el fix del DNS.
 
+## KEDA instalado (2026-09-12) - Fargate Profile propio, sin values file
+
+Mismo criterio que Argo CD: Helm, no Terraform, con su propio Fargate Profile
+(`aws_eks_fargate_profile.keda` en `eks.tf`, mismo patron que los demas profiles) porque namespace
+nuevo = profile nuevo, sin excepciones.
+
+A diferencia de Argo CD, **no hace falta ningun values file**. Verificado renderizando el chart real
+(`kedacore/keda` 2.20.2) antes de asumirlo:
+- Solo 3 Deployments (`keda-operator`, `keda-operator-metrics-apiserver`,
+  `keda-admission-webhooks`), sin DaemonSet ni Job - Fargate no soporta DaemonSets, asi que esto
+  importaba confirmarlo, no asumirlo.
+- `hostNetwork: false` en los 3 - compatible con Fargate sin ajustes.
+- El certificado del webhook de validacion lo genera y rota el propio `keda-operator` (tiene RBAC
+  propio sobre el secret `kedaorg-certs`, `create`/`update`) - no depende de cert-manager, nada que
+  instalar aparte ni mantener.
+- Fargate no exige `requests == limits` (a diferencia de ACI en el lado Azure) - solo dimensiona el
+  pod por `requests`, redondeando a la combinacion soportada mas cercana. Los defaults del chart
+  (`requests: 100m/100Mi`, `limits: 1/1000Mi` por componente) ya son validos tal cual - mismo motivo
+  por el que Argo CD tampoco necesito overrides de resources en este repo.
+- No hay ningun endpoint HTTP publico que exponer (es un operator + un metrics-adapter para
+  `external.metrics.k8s.io`, sin UI) - a diferencia de Argo CD, esto no toco `acm.tf` ni el Ingress
+  Group compartido para nada.
+
+Instalado como infraestructura base, sin ningun `ScaledObject`/`ScaledJob` configurado todavia - no
+hay ninguna app con carga variable real corriendo hoy que justifique uno.
+
 ## Consumidores
 
 Ninguno — proyecto hoja, nada más lee sus outputs.
@@ -106,17 +132,3 @@ Todo lo que sigue ya se hizo, dejado como registro de qué costó llegar a un pi
 
 Contraejemplo útil para la próxima vez: **`terraform plan`/`apply` local con credenciales amplias nunca iba a encontrar ninguno de estos 3 problemas** - los tres solo existen en el entorno de CI (checkout limpio, variables de repo, rol de IAM acotado). "Funciona en mi máquina" no prueba que el pipeline funcione.
 
-## PLAN (no implementado, decidido 2026-09-08) — cert wildcard + External DNS
-
-Motivación: cada subdominio nuevo (`eks.*`, `argocd.*`) hoy necesita un `aws_acm_certificate` + validación DNS dedicados en este repo - no escala si `aws-eks-apps` va a seguir agregando apps con Ingress propio (ver su README, sección "Roadmap"). Decidido con el usuario: pasar a un cert wildcard + External DNS antes de construir esas apps nuevas.
-
-**Cambios pendientes en este repo cuando se retome:**
-
-1. **`acm.tf`**: reemplazar `aws_acm_certificate.this` + `aws_acm_certificate.argocd` (2 certs, 2 sets de validación) por UN solo `aws_acm_certificate` con `domain_name = "*.aws.jalcalaroot.com"` y `subject_alternative_names = ["aws.jalcalaroot.com"]` (el apex no queda cubierto por el wildcard solo, se agrega como SAN aparte - gratis, ACM no cobra por SAN adicional). Puede generar 1 o 2 registros de validación DNS segun como los procese ACM - el `for_each` sobre `domain_validation_options` ya existente lo maneja sin cambios.
-2. **`k8s/ingress.yaml`** (hello-world) y el `helm install` de Argo CD (README, paso 8): apuntar `certificate-arn` al ARN del cert wildcard nuevo, no a los 2 viejos.
-3. **Instalar External DNS** via Helm en `kube-system` (mismo namespace/Fargate Profile que el ALB Controller, sin necesitar uno nuevo) - IRSA propio (mismo patron que `alb_controller.tf`), permisos minimos documentados por AWS: `route53:ChangeResourceRecordSets`, `route53:ListResourceRecordSets`, `route53:ListHostedZones`, acotados a la hosted zone de este proyecto (`domainFilters` en los values del chart, no a nivel IAM - `ListHostedZones` no es scopeable a una zone especifica).
-4. **Borrar a mano** los 2 registros Route53 CNAME creados manualmente esta sesión (`eks.aws.jalcalaroot.com`, `argocd.aws.jalcalaroot.com`, via `aws route53 change-resource-record-sets`, nunca gestionados por Terraform) - dejar que External DNS los cree y sea dueño desde cero (su TXT registry no adopta registros pre-existentes que no creó él mismo; si no se borran, External DNS los ignora en silencio y esos dos quedan fuera del sistema nuevo aunque las apps futuras sí entren).
-5. Decidir política de External DNS: `upsert-only` (default, no borra registros al borrar el Ingress - mas seguro) vs `sync` (limpieza automática al borrar una app - mejor higiene pero mas sorpresivo). No decidido todavía.
-6. Documentar todo esto en el README (reemplaza el paso 8/9 actual de instalación de Argo + el registro DNS manual).
-
-**Por qué no se hizo ya**: se decidió el approach pero se priorizó dar de baja el cluster/VPC al final de la sesión (ver más abajo) antes de implementar - para no dejar la cuenta con infra corriendo de un cambio a medio terminar.

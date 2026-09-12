@@ -138,7 +138,7 @@ resource "aws_eks_fargate_profile" "default" {
 # Namespace argocd: Argo CD (instalado via Helm, no Terraform - ver README).
 # Mismo motivo que los otros dos profiles: sin este, los pods de Argo se
 # quedan en Pending para siempre - namespace nuevo = Fargate Profile nuevo,
-# sin excepciones (ver aws-eks-apps/CLAUDE.md, donde se documento este mismo
+# sin excepciones (ver k8s-apps/CLAUDE.md, donde se documento este mismo
 # gotcha del lado del repo de apps).
 resource "aws_eks_fargate_profile" "argocd" {
   cluster_name           = aws_eks_cluster.this.name
@@ -148,6 +148,22 @@ resource "aws_eks_fargate_profile" "argocd" {
 
   selector {
     namespace = "argocd"
+  }
+
+  tags = local.tags
+}
+
+# Namespace keda: KEDA (instalado via Helm, no Terraform - ver README). Mismo
+# motivo que kube-system/default/argocd: namespace nuevo = Fargate Profile
+# nuevo, sin excepciones - sin esto, los 3 pods de KEDA se quedan Pending.
+resource "aws_eks_fargate_profile" "keda" {
+  cluster_name           = aws_eks_cluster.this.name
+  fargate_profile_name   = "keda"
+  pod_execution_role_arn = aws_iam_role.fargate_pod_execution.arn
+  subnet_ids             = var.network_compute_subnet_ids
+
+  selector {
+    namespace = "keda"
   }
 
   tags = local.tags
