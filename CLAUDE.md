@@ -1,6 +1,6 @@
 # aws-eks-cluster
 
-Hello-world container en EKS, corriendo 100% en Fargate (sin node pool EC2), expuesto vía AWS Load Balancer Controller con un certificado de ACM, imagen en un repo ECR dedicado, monitoreado vía Container Insights (CloudWatch). También aloja **Argo CD** (Helm, namespace `argocd`) — el controller GitOps que sincroniza [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) contra este cluster; ver README para el install completo.
+Hello-world container en EKS, corriendo 100% en Fargate (sin node pool EC2), expuesto vía AWS Load Balancer Controller con un certificado de ACM, imagen en un repo ECR dedicado. También aloja **Argo CD** (Helm, namespace `argocd`) — el controller GitOps que sincroniza [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) contra este cluster; ver README para el install completo.
 
 ## Decisiones de diseño
 
@@ -56,7 +56,7 @@ Repo creado el 2026-09-08 (`jalcalaroot/aws-eks-cluster`, id numérico propio, p
 - **Dependabot** (`.github/dependabot.yml`): actualiza versiones de providers Terraform y de las GitHub Actions usadas en los workflows, semanal.
 - **`SECURITY.md`**: reporte privado de vulnerabilidades vía GitHub private vulnerability reporting, no issues públicos.
 
-Ambos roles de CI (`ci_agent`/`ci_plan`) requieren estas GitHub Actions repository **variables** (no secrets, no son sensibles): `OWNER`, `NETWORK_COMPUTE_SUBNET_IDS` y `NETWORK_PUBLIC_SUBNET_IDS` (como JSON, ej. `["subnet-a","subnet-b"]`), `DNS_ZONE_ID`.
+Ambos roles de CI (`ci_agent`/`ci_plan`) requieren estas GitHub Actions repository **variables** (no secrets, no son sensibles): `OWNER`, `NETWORK_COMPUTE_SUBNET_IDS` y `NETWORK_PUBLIC_SUBNET_IDS` (como JSON, ej. `["subnet-a","subnet-b"]`), `DNS_ZONE_ID`, `GH_REPO_SUBJECT_PREFIX`, `GH_OIDC_PROVIDER_ARN` (los dos alimentan `TF_VAR_github_repo_subject_prefix`/`TF_VAR_github_oidc_provider_arn`), y `AWS_ROLE_ARN_AGENT`/`AWS_ROLE_ARN_PLAN` (el `role-to-assume` de cada workflow).
 
 ## Backend
 

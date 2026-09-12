@@ -42,7 +42,7 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
 | Resource | Purpose | Docs |
 |---|---|---|
 | EKS cluster | Managed Kubernetes control plane, `authentication_mode = API` (Access Entries, no `aws-auth` ConfigMap) | [Amazon EKS](https://aws.amazon.com/eks/) |
-| Fargate profiles (`kube-system`, `default`) | Serverless compute for every pod in the cluster — CoreDNS, the ALB Controller, and the hello-world app | [Fargate Pod execution role](https://docs.aws.amazon.com/eks/latest/userguide/pod-execution-role.html) |
+| Fargate profiles (`kube-system`, `default`, `argocd`, `keda`) | Serverless compute for every pod in the cluster — CoreDNS, the ALB Controller, hello-world, Argo CD, and KEDA | [Fargate Pod execution role](https://docs.aws.amazon.com/eks/latest/userguide/pod-execution-role.html) |
 | AWS Load Balancer Controller (IRSA) | Public entry point; provisions and reconfigures the ALB automatically from Kubernetes `Ingress` resources | [AWS Load Balancer Controller](https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html) |
 | Argo CD (Helm, `argocd` namespace) | GitOps controller — watches [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) and syncs the cluster; UI at `argocd.aws.jalcalaroot.com` | [argo-cd chart](https://github.com/argoproj/argo-helm) |
 | KEDA (Helm, `keda` namespace) | Event-driven pod autoscaling — installed as base platform, no `ScaledObject` configured yet | [KEDA docs](https://keda.sh/docs/latest/) |
@@ -50,7 +50,6 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
 | ACM certificates (x2, DNS validation) | One per public host (`eks.*`, `argocd.*`), issued and auto-renewed by AWS, validated via Route 53 CNAME records | [ACM DNS validation](https://docs.aws.amazon.com/acm/latest/userguide/dns-validation.html) |
 | Cluster OIDC provider (IRSA) | Lets in-cluster ServiceAccounts (the ALB Controller) assume IAM roles without static credentials | [IAM roles for service accounts](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html) |
 | IAM roles (x2) | CI/CD identities for GitHub Actions, federated via OIDC — no stored secrets | — |
-| Container Insights (CloudWatch) | EKS-specific monitoring for the cluster | — |
 
 ## Design notes
 
@@ -214,9 +213,9 @@ GitHub Actions, authenticated to AWS via OIDC — no secrets or static credentia
 | `terraform-apply.yml` | Push to `main` | `eks-cluster-ci-agent` (scoped to this project's resources only, plus a cluster Access Entry) | `plan` + `apply` |
 | `gitleaks.yml` | PR / push to `main` | — | Secret scanning |
 
-Both IAM roles are scoped resource-by-resource, never a blanket policy — see [CLAUDE.md](CLAUDE.md) for the full breakdown, including the note on why the CI policy is a draft that still needs verifying against a real `terraform plan` before production use.
+Both IAM roles are scoped resource-by-resource, never a blanket policy — see [CLAUDE.md](CLAUDE.md) for the full breakdown, including the gaps found and fixed while verifying the policy against real CI applies.
 
-Required GitHub repository variables (Settings → Secrets and variables → Actions → Variables): `OWNER`, `NETWORK_COMPUTE_SUBNET_IDS`, `NETWORK_PUBLIC_SUBNET_IDS` (both as a JSON array, e.g. `["subnet-a","subnet-b"]`), `DNS_ZONE_ID`.
+Required GitHub repository variables (Settings → Secrets and variables → Actions → Variables): `OWNER`, `NETWORK_COMPUTE_SUBNET_IDS`, `NETWORK_PUBLIC_SUBNET_IDS` (both as a JSON array, e.g. `["subnet-a","subnet-b"]`), `DNS_ZONE_ID`, `GH_REPO_SUBJECT_PREFIX`, `GH_OIDC_PROVIDER_ARN`, `AWS_ROLE_ARN_AGENT`, `AWS_ROLE_ARN_PLAN`.
 
 Dependabot (`.github/dependabot.yml`) keeps Terraform providers and GitHub Actions versions current, weekly. A local `pre-commit` hook (`.pre-commit-config.yaml`) runs gitleaks + `terraform fmt` before a secret or a formatting issue ever leaves the machine.
 
@@ -226,4 +225,4 @@ Main ongoing costs: the EKS control plane (~$0.10/hour, flat — unlike the pods
 
 ## Not covered
 
-WAF on the ALB, fine-grained Kubernetes RBAC beyond cluster-admin, autoscaling, multi-region, network policies, private cluster endpoint.
+WAF on the ALB, fine-grained Kubernetes RBAC beyond cluster-admin, autoscaling, multi-region, network policies, private cluster endpoint, cluster/pod monitoring or logging (no Container Insights, no control plane log types enabled).
