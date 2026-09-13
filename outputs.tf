@@ -47,3 +47,8 @@ output "vpc_id" {
   description = "Necesario para --set vpcId= al instalar el ALB Controller via Helm - sin esto intenta auto-descubrir el VPC via IMDS, que no existe en Fargate (ver CLAUDE.md)"
   value       = aws_eks_cluster.this.vpc_config[0].vpc_id
 }
+
+output "adot_collector_role_arn" {
+  description = "ARN a anotar en el ServiceAccount del ADOT Collector (eks.amazonaws.com/role-arn) - ver k8s/container-insights.yaml"
+  value       = aws_iam_role.adot_collector.arn
+}
