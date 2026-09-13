@@ -118,6 +118,53 @@ A diferencia de Argo CD, **no hace falta ningun values file**. Verificado render
 Instalado como infraestructura base, sin ningun `ScaledObject`/`ScaledJob` configurado todavia - no
 hay ninguna app con carga variable real corriendo hoy que justifique uno.
 
+## Container Insights via ADOT (2026-09-13) - el addon estandar no sirve en Fargate puro
+
+Se habia documentado antes (por error, ya corregido) que el cluster "se monitorea via Container
+Insights (CloudWatch)" sin que existiera nada de eso - ver el commit que lo saco. Investigado en
+serio esta vez, contra la doc oficial de AWS, antes de escribir nada:
+
+**Por que el addon `amazon-cloudwatch-observability` (el camino estandar/recomendado por AWS hoy)
+no aplica aca**: tanto su modo clasico como el nuevo "OTel Container Insights" dependen de scrapear
+cAdvisor via el kubelet del nodo y de correr como DaemonSet (Node Exporter, Kube State Metrics) -
+Fargate no expone kubelet directamente al pod y no soporta DaemonSets. No es una limitacion de
+configuracion, es arquitectural: no hay nodo real detras del pod al que apuntar.
+
+**La alternativa que AWS documenta especificamente para Fargate es un ADOT Collector** (AWS Distro
+for OpenTelemetry) corriendo como `StatefulSet` (`k8s/container-insights.yaml`, namespace
+`fargate-container-insights` con su propio Fargate Profile, mismo patron que argocd/keda). En vez
+de kubelet directo, el collector llama a la API del cluster para que esta le haga de proxy hacia
+`/metrics/cadvisor` en cada nodo Fargate (`nodes/proxy` en el ClusterRole) - mecanismo verificado
+contra https://aws-otel.github.io/docs/getting-started/container-insights/eks-fargate, no adivinado.
+El manifiesto de `k8s/container-insights.yaml` es el oficial de
+[`aws-observability/aws-otel-collector`](https://github.com/aws-observability/aws-otel-collector/blob/main/deployment-template/eks/otel-fargate-container-insights.yaml)
+copiado completo (no recortado - el pipeline calcula metricas a nivel container ademas de pod;
+aunque solo las 8 `pod_*` se promueven a metrica real via `metric_declarations`, las de container
+igual quedan en el log group como dato crudo EMF, asi que recortarlas hubiera sido una
+simplificacion no verificada), con dos cambios: se agrego el `ServiceAccount` explicito con la
+anotacion IRSA (el original asume que lo crea `eksctl create iamserviceaccount`; este repo no usa
+eksctl) y se pineo la imagen a `v0.50.0` en vez de `:latest`.
+
+**IRSA, no una policy custom**: el rol (`container_insights.tf`) usa la managed policy oficial de
+AWS `CloudWatchAgentServerPolicy` en vez de escribir una policy acotada a mano - es literalmente lo
+que AWS documenta para este setup especifico, sin necesidad de reinventarla.
+
+**Esto es solo metricas, no logs de aplicacion.** El pipeline del collector es
+`receivers: [prometheus] -> exporters: [awsemf]` - scrapea metricas de cadvisor, no stdout/stderr de
+los pods. Los logs de hello-world/Argo CD/KEDA (`kubectl logs`) siguen sin llegar a ningun lado fuera
+del cluster. Para eso, Fargate tiene un mecanismo separado (log router Fluent Bit integrado, via un
+`ConfigMap` `aws-logging` en el namespace `aws-observability` -
+https://docs.aws.amazon.com/eks/latest/userguide/fargate-logging.html) - **no implementado**, decision
+explicita de alcance (el usuario pidio "Container Insights", no logging de apps), no un gap
+descubierto despues.
+
+Costo real: el collector es un pod fijo de 1 vCPU / 2Gi corriendo 24/7 (`requests == limits`, no
+recortable sin arriesgar que se caigan scrapes) - un pod entero mas de infraestructura, no trivial al
+lado de hello-world. Las metricas aparecen en CloudWatch bajo el namespace `ContainerInsights` y en
+el log group `/aws/containerinsights/<cluster_name>/performance` (formato EMF, no legible
+directamente - se consume desde el dashboard de Container Insights o via `PutMetricData`/queries, no
+tail-eando el log group a mano).
+
 ## Consumidores
 
 Ninguno — proyecto hoja, nada más lee sus outputs.

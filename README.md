@@ -25,13 +25,18 @@ EKS cluster (control plane, AWS-managed)
  │         ├─ server, repo-server, application-controller,
  │         │  redis, dex, notifications...
  │         └─ GitOps target: k8s-apps (separate repo)
- └─ Fargate Profile "keda"
-      └─ KEDA (Helm)
-           ├─ operator, metrics-apiserver, admission-webhooks
-           └─ no ScaledObject configured yet - installed as base platform
+ ├─ Fargate Profile "keda"
+ │    └─ KEDA (Helm)
+ │         ├─ operator, metrics-apiserver, admission-webhooks
+ │         └─ no ScaledObject configured yet - installed as base platform
+ └─ Fargate Profile "container-insights"
+      └─ ADOT Collector (StatefulSet, IRSA)
+           ├─ scrapes /metrics/cadvisor via API server proxy (Fargate has no
+           │  direct kubelet access) -> CloudWatch (namespace ContainerInsights)
+           └─ metrics only - no application log shipping (see CLAUDE.md)
 ```
 
-The Application Load Balancer is the only public entry point, shared by every app via `alb.ingress.kubernetes.io/group.name` — one ALB, not one per app (real hourly + LCU cost otherwise). Every pod in the cluster — system and workload alike — runs on Fargate: there is no EC2 node group anywhere in this project. Which pods land on Fargate is decided in Terraform, via **Fargate Profiles** that select pods by namespace (`eks.tf`), not in the pod spec itself — each namespace (`kube-system`, `default`, `argocd`, `keda`) needs its own profile before anything scheduled into it can start.
+The Application Load Balancer is the only public entry point, shared by every app via `alb.ingress.kubernetes.io/group.name` — one ALB, not one per app (real hourly + LCU cost otherwise). Every pod in the cluster — system and workload alike — runs on Fargate: there is no EC2 node group anywhere in this project. Which pods land on Fargate is decided in Terraform, via **Fargate Profiles** that select pods by namespace (`eks.tf`), not in the pod spec itself — each namespace (`kube-system`, `default`, `argocd`, `keda`, `fargate-container-insights`) needs its own profile before anything scheduled into it can start.
 
 Argo CD (installed here via Helm, not Terraform — see Usage) is the GitOps controller for application deployments; it watches [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) and syncs the cluster automatically. This repo only owns the cluster infrastructure and Argo CD's own installation — not the apps it deploys.
 
@@ -42,10 +47,11 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
 | Resource | Purpose | Docs |
 |---|---|---|
 | EKS cluster | Managed Kubernetes control plane, `authentication_mode = API` (Access Entries, no `aws-auth` ConfigMap) | [Amazon EKS](https://aws.amazon.com/eks/) |
-| Fargate profiles (`kube-system`, `default`, `argocd`, `keda`) | Serverless compute for every pod in the cluster — CoreDNS, the ALB Controller, hello-world, Argo CD, and KEDA | [Fargate Pod execution role](https://docs.aws.amazon.com/eks/latest/userguide/pod-execution-role.html) |
+| Fargate profiles (`kube-system`, `default`, `argocd`, `keda`, `fargate-container-insights`) | Serverless compute for every pod in the cluster — CoreDNS, the ALB Controller, hello-world, Argo CD, KEDA, and the ADOT Collector | [Fargate Pod execution role](https://docs.aws.amazon.com/eks/latest/userguide/pod-execution-role.html) |
 | AWS Load Balancer Controller (IRSA) | Public entry point; provisions and reconfigures the ALB automatically from Kubernetes `Ingress` resources | [AWS Load Balancer Controller](https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html) |
 | Argo CD (Helm, `argocd` namespace) | GitOps controller — watches [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) and syncs the cluster; UI at `argocd.aws.jalcalaroot.com` | [argo-cd chart](https://github.com/argoproj/argo-helm) |
 | KEDA (Helm, `keda` namespace) | Event-driven pod autoscaling — installed as base platform, no `ScaledObject` configured yet | [KEDA docs](https://keda.sh/docs/latest/) |
+| ADOT Collector (`k8s/container-insights.yaml`, IRSA) | CloudWatch Container Insights metrics (CPU/memory/network per pod) — the standard `amazon-cloudwatch-observability` add-on needs a real node's kubelet/cAdvisor, which Fargate doesn't expose, so this uses AWS's documented ADOT-based approach instead | [Container Insights EKS Fargate](https://aws-otel.github.io/docs/getting-started/container-insights/eks-fargate) |
 | Amazon ECR repository | Hosts the `hello-world` image | [Amazon ECR private repositories](https://docs.aws.amazon.com/AmazonECR/latest/userguide/Repositories.html) |
 | ACM certificates (x2, DNS validation) | One per public host (`eks.*`, `argocd.*`), issued and auto-renewed by AWS, validated via Route 53 CNAME records | [ACM DNS validation](https://docs.aws.amazon.com/acm/latest/userguide/dns-validation.html) |
 | Cluster OIDC provider (IRSA) | Lets in-cluster ServiceAccounts (the ALB Controller) assume IAM roles without static credentials | [IAM roles for service accounts](https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html) |
@@ -164,12 +170,21 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
     ```
     Installed as base platform infrastructure — no `ScaledObject` configured yet, since there's no app with variable load to scale.
 
+12. **Apply Container Insights** (CloudWatch metrics via ADOT — not Helm, a plain manifest; substitute the placeholders first):
+    ```bash
+    sed -e "s|<CLUSTER_NAME>|$(terraform output -raw cluster_name)|g" \
+        -e "s|<ADOT_COLLECTOR_ROLE_ARN>|$(terraform output -raw adot_collector_role_arn)|" \
+        k8s/container-insights.yaml | kubectl apply -f -
+    ```
+    Metrics land in CloudWatch under the `ContainerInsights` namespace and the `/aws/containerinsights/<cluster>/performance` log group within a few minutes. This is metrics only — it does **not** ship application stdout/stderr logs (that's a separate mechanism, Fargate's built-in Fluent Bit log router via an `aws-logging` ConfigMap, not set up here — see CLAUDE.md).
+
 ```bash
 kubectl delete -f k8s/
 helm uninstall argocd -n argocd
 kubectl delete ns argocd
 helm uninstall keda -n keda
 kubectl delete ns keda
+kubectl delete -f k8s/container-insights.yaml
 helm uninstall aws-load-balancer-controller -n kube-system
 terraform destroy
 ```
@@ -202,6 +217,7 @@ terraform destroy
 | `alb_controller_role_arn` | To annotate the ALB Controller's ServiceAccount |
 | `argocd_fqdn` | Argo CD UI public hostname |
 | `argocd_acm_certificate_arn` | For the Argo CD Ingress annotation |
+| `adot_collector_role_arn` | To annotate the ADOT Collector's ServiceAccount |
 
 ## CI/CD
 
@@ -221,8 +237,8 @@ Dependabot (`.github/dependabot.yml`) keeps Terraform providers and GitHub Actio
 
 ## Cost
 
-Main ongoing costs: the EKS control plane (~$0.10/hour, flat — unlike the pods, this runs whether or not anything is deployed), Fargate compute (billed per vCPU/memory-second while a pod runs, rounded up to the nearest supported combination — Argo CD's ~7 pods add up, non-trivial next to the single hello-world pod), the Application Load Balancer (hourly + LCU-based — **shared** across every app via the ALB Ingress Group, not one per app), and incidental Route 53/CloudWatch usage. None of this is in the AWS Free Tier — destroy (`kubectl delete -f k8s/`, uninstall both Helm releases, then `terraform destroy`) when not actively in use.
+Main ongoing costs: the EKS control plane (~$0.10/hour, flat — unlike the pods, this runs whether or not anything is deployed), Fargate compute (billed per vCPU/memory-second while a pod runs, rounded up to the nearest supported combination — Argo CD's ~7 pods add up, non-trivial next to the single hello-world pod), the Application Load Balancer (hourly + LCU-based — **shared** across every app via the ALB Ingress Group, not one per app), and incidental Route 53/CloudWatch usage. The ADOT Collector adds a full extra 1 vCPU / 2 GB Fargate pod running 24/7 (its own resource request, not tunable down without risking dropped scrapes) plus CloudWatch Logs/Metrics ingestion — non-trivial next to hello-world's own footprint. None of this is in the AWS Free Tier — destroy (`kubectl delete -f k8s/`, uninstall both Helm releases, then `terraform destroy`) when not actively in use.
 
 ## Not covered
 
-WAF on the ALB, fine-grained Kubernetes RBAC beyond cluster-admin, autoscaling, multi-region, network policies, private cluster endpoint, cluster/pod monitoring or logging (no Container Insights, no control plane log types enabled).
+WAF on the ALB, fine-grained Kubernetes RBAC beyond cluster-admin, autoscaling, multi-region, network policies, private cluster endpoint, application log shipping (Container Insights here is metrics-only — see CLAUDE.md), control plane log types (`enabled_cluster_log_types` unset).
