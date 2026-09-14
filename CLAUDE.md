@@ -43,6 +43,12 @@ Los gaps se corrigieron en `ci_identities.tf` a partir de los errores reales de 
 
 **Gotcha de bootstrap circular, no obvio**: el fix de una IAM policy que el propio `ci_agent` usa **no se puede aplicar corriendo el pipeline de CI otra vez** - el `terraform plan` de esa misma corrida necesita los permisos NUEVOS para poder hacer `refresh` de los recursos existentes, pero esos permisos nuevos recién existirían DESPUÉS de un `apply` exitoso que el pipeline nunca llega a correr. Cada uno de los 3 fixes de arriba se aplicó primero con `terraform apply -target=aws_iam_role_policy.ci_agent_permissions -target=aws_iam_role_policy.ci_plan_permissions` usando credenciales propias (`arn:aws:iam::<account-id>:user/virtual`, con permiso amplio), y recién ahí se reintentó el pipeline. Sin este paso manual, el pipeline queda atascado reintentando el mismo error para siempre por más commits que se le agreguen al policy document.
 
+## IAM Policy Autopilot en el pipeline (2026-09-14) - cierra la deuda de arriba
+
+`terraform-plan.yml` ahora corre [`jalcalaroot/gha-iam-policy-autopilot`](https://github.com/jalcalaroot/gha-iam-policy-autopilot) (composite action propio, compartido con cualquier otro repo de este account que provisione AWS con Terraform) contra el `terraform show -json` del plan real de cada PR. Es análisis estático puro - lee el plan, no toca la cuenta - y sube la policy baseline generada como artifact del workflow para comparar contra lo escrito a mano en este archivo.
+
+No reemplaza el proceso de arriba (verificar contra un `apply` real sigue siendo la única forma de encontrar gaps de `refresh`/tags que el plan no anticipa, como `ec2:DescribeTags`) - lo complementa: Autopilot te dice qué necesita el plan para *crear* los recursos, el apply real te dice qué le falta para *mantenerlos* después. No falla el build ni compara nada solo todavía - es una revisión manual del artifact, por ahora.
+
 ## OIDC subject claim — resuelto
 
 Repo creado el 2026-09-08 (`jalcalaroot/aws-eks-cluster`, id numérico propio, público). El sub claim en `ci_identities.tf` usa `repo:<org>@<org-id>/<repo>@<repo-id>:...` — confirmado ese mismo día vía `gh api repos/jalcalaroot/aws-eks-cluster/actions/oidc/customization/sub` (sub_claim_prefix personalizado de esta cuenta, no el immutable subject default). Si el repo se renombra en el futuro, este ID sigue siendo válido (es estable, la parte de texto no) pero **hay que volver a correr ese mismo `gh api` para confirmarlo** — no asumir que el ID no cambió solo porque el nombre visible cambió.
