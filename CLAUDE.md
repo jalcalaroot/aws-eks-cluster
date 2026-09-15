@@ -53,6 +53,10 @@ No reemplaza el proceso de arriba (verificar contra un `apply` real sigue siendo
 
 Segundo pase de Checkov via [`jalcalaroot/gha-checkov-plan-scan`](https://github.com/jalcalaroot/gha-checkov-plan-scan), sobre el mismo `plan.json` que ya se genera para Autopilot - resuelve valores (data sources, variables sin default) que un scan estático del HCL no ve. Corre en `soft-fail` a propósito: verificado a mano que `--repo-root-for-plan-enrichment` no respeta de forma confiable los `#checkov:skip` ya existentes (bug abierto de Checkov, no una config nuestra) - si fuera bloqueante, re-marcaría como nuevos los 2 skips ya aceptados en `ci_identities.tf`. Sube el SARIF como artifact para revisión manual, igual que Autopilot.
 
+## Reglas custom de Checkov (2026-09-15)
+
+El Checkov estático (bloqueante, el de arriba en el pipeline) ahora también carga [`jalcalaroot/johan-cloud-policies`](https://github.com/jalcalaroot/johan-cloud-policies) via `external_checks_dirs` - reglas propias de IAM que los ~1000 checks built-in no cubren (hoy: ningún `Action` wildcard en un `aws_iam_policy_document`). Verificado a mano contra este repo antes de conectarlo: 0 hallazgos, no rompe nada existente. Ese repo también tiene un check de "todo rol IAM necesita permission boundary" escrito y probado, pero deliberadamente en `draft/` (no cargado acá) porque falla contra los 6 roles reales de este repo - agregar boundaries de verdad es trabajo de infra, no algo para activar como bloqueante sin hacer eso primero.
+
 ## OIDC subject claim — resuelto
 
 Repo creado el 2026-09-08 (`jalcalaroot/aws-eks-cluster`, id numérico propio, público). El sub claim en `ci_identities.tf` usa `repo:<org>@<org-id>/<repo>@<repo-id>:...` — confirmado ese mismo día vía `gh api repos/jalcalaroot/aws-eks-cluster/actions/oidc/customization/sub` (sub_claim_prefix personalizado de esta cuenta, no el immutable subject default). Si el repo se renombra en el futuro, este ID sigue siendo válido (es estable, la parte de texto no) pero **hay que volver a correr ese mismo `gh api` para confirmarlo** — no asumir que el ID no cambió solo porque el nombre visible cambió.
