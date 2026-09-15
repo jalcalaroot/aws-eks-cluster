@@ -49,6 +49,10 @@ Los gaps se corrigieron en `ci_identities.tf` a partir de los errores reales de 
 
 No reemplaza el proceso de arriba (verificar contra un `apply` real sigue siendo la única forma de encontrar gaps de `refresh`/tags que el plan no anticipa, como `ec2:DescribeTags`) - lo complementa: Autopilot te dice qué necesita el plan para *crear* los recursos, el apply real te dice qué le falta para *mantenerlos* después. No falla el build ni compara nada solo todavía - es una revisión manual del artifact, por ahora.
 
+## Checkov contra el plan, no solo el HCL (2026-09-15)
+
+Segundo pase de Checkov via [`jalcalaroot/gha-checkov-plan-scan`](https://github.com/jalcalaroot/gha-checkov-plan-scan), sobre el mismo `plan.json` que ya se genera para Autopilot - resuelve valores (data sources, variables sin default) que un scan estático del HCL no ve. Corre en `soft-fail` a propósito: verificado a mano que `--repo-root-for-plan-enrichment` no respeta de forma confiable los `#checkov:skip` ya existentes (bug abierto de Checkov, no una config nuestra) - si fuera bloqueante, re-marcaría como nuevos los 2 skips ya aceptados en `ci_identities.tf`. Sube el SARIF como artifact para revisión manual, igual que Autopilot.
+
 ## OIDC subject claim — resuelto
 
 Repo creado el 2026-09-08 (`jalcalaroot/aws-eks-cluster`, id numérico propio, público). El sub claim en `ci_identities.tf` usa `repo:<org>@<org-id>/<repo>@<repo-id>:...` — confirmado ese mismo día vía `gh api repos/jalcalaroot/aws-eks-cluster/actions/oidc/customization/sub` (sub_claim_prefix personalizado de esta cuenta, no el immutable subject default). Si el repo se renombra en el futuro, este ID sigue siendo válido (es estable, la parte de texto no) pero **hay que volver a correr ese mismo `gh api` para confirmarlo** — no asumir que el ID no cambió solo porque el nombre visible cambió.
