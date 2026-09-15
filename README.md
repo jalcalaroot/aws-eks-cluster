@@ -225,7 +225,7 @@ GitHub Actions, authenticated to AWS via OIDC — no secrets or static credentia
 
 | Workflow | Trigger | Identity | What it does |
 |---|---|---|---|
-| `terraform-plan.yml` | Pull request | `eks-cluster-ci-plan` (read-only) | `fmt -check`, `validate`, tflint, Checkov (blocking, SARIF uploaded to the Security tab), `plan`, [IAM Policy Autopilot](https://github.com/jalcalaroot/gha-iam-policy-autopilot) (baseline IAM policy from the plan, uploaded as an artifact — not blocking), [Checkov plan scan](https://github.com/jalcalaroot/gha-checkov-plan-scan) (second pass against the resolved plan, not blocking — see CLAUDE.md for why), posts the plan as a PR comment |
+| `terraform-plan.yml` | Pull request | `eks-cluster-ci-plan` (read-only) | `fmt -check`, `validate`, tflint, Checkov + [custom IAM rules](https://github.com/jalcalaroot/johan-cloud-policies) (blocking, SARIF uploaded to the Security tab), `plan`, [IAM Policy Autopilot](https://github.com/jalcalaroot/gha-iam-policy-autopilot) (baseline IAM policy from the plan, uploaded as an artifact — not blocking), [Checkov plan scan](https://github.com/jalcalaroot/gha-checkov-plan-scan) (second pass against the resolved plan, not blocking — see CLAUDE.md for why), posts the plan as a PR comment |
 | `terraform-apply.yml` | Push to `main` | `eks-cluster-ci-agent` (scoped to this project's resources only, plus a cluster Access Entry) | `plan` + `apply` |
 | `gitleaks.yml` | PR / push to `main` | — | Secret scanning |
 

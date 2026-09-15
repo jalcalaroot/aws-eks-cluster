@@ -87,6 +87,15 @@ jobs:
           tflint --init
           tflint --recursive
 
+      # Reglas propias (IAM/RBAC), no cubiertas por los checks built-in de
+      # Checkov - ver jalcalaroot/johan-cloud-policies.
+      - name: Checkout de las reglas custom de Checkov
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jalcalaroot/johan-cloud-policies
+          path: .johan-cloud-policies
+          ref: ed7675c85bb67c6d063c6b87c468916d7546ee01 # main (2026-09-15)
+
       - name: Checkov
         id: checkov
         uses: bridgecrewio/checkov-action@f967808197a8d784d3e72919f38c3ff0cda7884e # v12.3122.0
@@ -97,6 +106,7 @@ jobs:
           soft_fail: false # bloqueante — findings aceptados quedan documentados con #checkov:skip inline
           output_format: cli,sarif
           output_file_path: console,results.sarif
+          external_checks_dirs: .johan-cloud-policies/custom_policies/aws
 
       - name: Subir resultados de Checkov a la pestaña Security
         # correr también cuando Checkov falla (soft_fail: false) - ahí es
