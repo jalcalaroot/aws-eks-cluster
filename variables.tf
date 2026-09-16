@@ -88,3 +88,20 @@ variable "dns_record_name_argocd" {
   type        = string
   default     = "argocd"
 }
+
+# Las 3 apps demo de k8s-apps, expuestas via el mismo ALB compartido
+# (group.name eks-demo-apps) - mismo patron que hello-world/argocd arriba.
+variable "dns_record_name_podinfo" {
+  type    = string
+  default = "podinfo"
+}
+
+variable "dns_record_name_game_2048" {
+  type    = string
+  default = "game-2048"
+}
+
+variable "dns_record_name_uptime_kuma" {
+  type    = string
+  default = "uptime-kuma"
+}

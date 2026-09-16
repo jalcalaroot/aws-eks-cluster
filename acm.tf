@@ -76,3 +76,58 @@ resource "aws_acm_certificate_validation" "argocd" {
   certificate_arn         = aws_acm_certificate.argocd.arn
   validation_record_fqdns = [for r in aws_route53_record.argocd_cert_validation : r.fqdn]
 }
+
+# Las 3 apps demo de k8s-apps (podinfo/game-2048/uptime-kuma) - mismo patron
+# de arriba, pero via for_each en vez de un bloque explicito por app: son 3
+# certs idénticos salvo el hostname, y hello-world/argocd se dejan como
+# estaban (tocarlos no aporta nada acá y son los unicos con logica propia,
+# como el output separado que consume el Ingress via placeholder manual).
+locals {
+  demo_apps_fqdns = {
+    podinfo     = local.podinfo_fqdn
+    game-2048   = local.game_2048_fqdn
+    uptime-kuma = local.uptime_kuma_fqdn
+  }
+}
+
+resource "aws_acm_certificate" "demo_apps" {
+  for_each = local.demo_apps_fqdns
+
+  domain_name       = each.value
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = local.tags
+}
+
+resource "aws_route53_record" "demo_apps_cert_validation" {
+  for_each = {
+    for pair in flatten([
+      for app, cert in aws_acm_certificate.demo_apps : [
+        for dvo in cert.domain_validation_options : {
+          key    = app
+          name   = dvo.resource_record_name
+          record = dvo.resource_record_value
+          type   = dvo.resource_record_type
+        }
+      ]
+    ]) : pair.key => pair
+  }
+
+  zone_id         = var.dns_zone_id
+  name            = each.value.name
+  type            = each.value.type
+  records         = [each.value.record]
+  ttl             = 60
+  allow_overwrite = true
+}
+
+resource "aws_acm_certificate_validation" "demo_apps" {
+  for_each = aws_acm_certificate.demo_apps
+
+  certificate_arn         = each.value.arn
+  validation_record_fqdns = [aws_route53_record.demo_apps_cert_validation[each.key].fqdn]
+}

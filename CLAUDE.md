@@ -213,3 +213,11 @@ Necesario para que el trigger `cpu` de KEDA (usado en [`k8s-apps`](https://githu
 2. Con eso solo, el siguiente error es `403 Forbidden` al scrapear el nodo - **no es un problema de RBAC**, es que Fargate reserva el puerto `10250` para su propio uso interno (confirmado contra la doc oficial de AWS, seccion "Considerations" de la guía de metrics-server). Fix real: mover el `--secure-port` propio de metrics-server a `10251` (el Service sigue funcionando solo, su `targetPort` es por nombre `https`, no por número) - metrics-server sigue usando el 10250 para *scrapear* otros nodos, solo su propio puerto de serving cambia.
 
 Ver `k8s-apps/README.md` seccion "Prerequisites" para los comandos exactos.
+
+## Las 3 apps demo de k8s-apps ahora tienen URL publica (2026-09-16)
+
+`acm.tf` gano un tercer bloque (`aws_acm_certificate.demo_apps`, `for_each` sobre `podinfo`/`game-2048`/`uptime-kuma`) - mismo patron que hello-world/argocd, pero con `for_each` en vez de un recurso explicito por app, para no tocar los dos bloques existentes. Comparten el mismo ALB (`group.name: eks-demo-apps`) via SNI - un cert mas en el mismo listener HTTPS, no un ALB nuevo.
+
+**Dependencia cruzada real con `k8s-apps`, no automatizada**: el output `demo_apps_acm_certificate_arns` de este repo se pega a mano en la annotation `alb.ingress.kubernetes.io/certificate-arn` de cada `Ingress` en `k8s-apps` (`apps/<app>/overlays/eks/ingress.yaml`) - no hay ningun mecanismo que sincronice esto automaticamente entre los dos repos. Si el cert de una app se recrea (ej. `terraform destroy`/`apply` completo), el ARN cambia y hay que actualizar el Ingress correspondiente en `k8s-apps` a mano.
+
+El registro DNS real (CNAME hacia el ALB, no A/alias) se creo a mano via `aws route53 change-resource-record-sets`, mismo criterio no-Terraform que `fqdn`/`argocd_fqdn` ya documentan arriba - Terraform gestiona la validacion del certificado (que si depende del zone ID), no el registro final que apunta al humano al ALB.
