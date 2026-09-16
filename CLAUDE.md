@@ -193,3 +193,12 @@ Todo lo que sigue ya se hizo, dejado como registro de qué costó llegar a un pi
 
 Contraejemplo útil para la próxima vez: **`terraform plan`/`apply` local con credenciales amplias nunca iba a encontrar ninguno de estos 3 problemas** - los tres solo existen en el entorno de CI (checkout limpio, variables de repo, rol de IAM acotado). "Funciona en mi máquina" no prueba que el pipeline funcione.
 
+## Cluster destruido: el pipeline de CI queda roto hasta el redeploy (encontrado 2026-09-15)
+
+`eks-cluster-ci-agent`/`eks-cluster-ci-plan` (ci_identities.tf) viven en el **mismo** Terraform state que el cluster. Cuando el cluster se destruye para no pagar de más mientras no está en uso (ver sección "Costo" arriba), esas dos identidades se destruyen con él - confirmado con `aws iam list-roles`, no queda ningún rol `eks-cluster-*` en la cuenta.
+
+Consecuencia: **todo PR queda con el CI en rojo** hasta que alguien vuelva a desplegar - `sts:AssumeRoleWithWebIdentity` falla con "Not authorized" porque el rol que GitHub Actions intenta asumir no existe. Confirmado que esto no es un problema nuevo: los últimos PRs de Dependabot antes de este hallazgo ya fallaban igual, en el mismo paso.
+
+Es una trampa de bootstrapping real, distinta del gotcha de `jalcalaroot-aws-bootstrap`/`jalcalaroot-azure-bootstrap` (esos repos SÍ pueden seguir corriendo CI con el cluster/red destruidos, porque sus identidades de CI viven en un state separado y persistente - el propio "bootstrap"). Acá no hay ese state separado: para poder volver a hacer `terraform plan` sobre este repo hace falta primero recrear el cluster (o al menos las identidades) con credenciales locales amplias, no con el pipeline.
+
+No se resolvió todavía - queda documentado para la próxima vez que se redespliegue, no como bug a arreglar en código hoy.

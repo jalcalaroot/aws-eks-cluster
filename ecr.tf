@@ -2,6 +2,7 @@
 # (ver eks.tf), sin secrets ni credenciales embebidas.
 resource "aws_ecr_repository" "this" {
   #checkov:skip=CKV_AWS_51:MUTABLE a proposito - se itera re-pusheando el tag "latest" mientras se prueba el hello-world
+  #checkov:skip=CKV_AWS_136:cifrado AES256 (default, Amazon-owned key) alcanza - una sola imagen hello-world, sin contenido sensible que justifique una KMS key propia
   name                 = var.ecr_repository_name
   image_tag_mutability = "MUTABLE"
   # force_delete = true: este proyecto se destruye completo despues de cada

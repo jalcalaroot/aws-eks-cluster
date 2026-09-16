@@ -57,6 +57,7 @@ resource "aws_iam_role" "ci_agent" {
 }
 
 data "aws_iam_policy_document" "ci_plan_assume_role" {
+  #checkov:skip=CKV_AWS_358:aud y sub ya se verifican con StringEquals (match exacto, sin wildcards) sobre este OIDC provider especifico - mismo patron ya aceptado en jalcalaroot-aws-bootstrap/iam-plan-role.tf; no se identifico que "orden de claims" adicional pediria este check.
   statement {
     sid     = "GitHubActionsPullRequest"
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -98,6 +99,7 @@ resource "aws_iam_role" "ci_plan" {
 
 data "aws_iam_policy_document" "ci_agent_permissions" {
   #checkov:skip=CKV_AWS_356:Resource "*" limitado a acciones Describe/List de EKS/EC2/ECR (AWS no permite scopearlas a nivel de recurso) o a iam:PassRole acotado por condicion iam:PassedToService - ver statements individuales
+  #checkov:skip=CKV_AWS_111:este es precisamente el rol de apply, tiene que poder escribir - cada statement de escritura esta scoped a los tipos de recurso que este proyecto realmente crea (no a "*"), mismo criterio ya usado en jalcalaroot-aws-bootstrap/iam.tf
   statement {
     sid = "EksClusterLifecycle"
 

@@ -13,6 +13,8 @@ resource "aws_iam_role" "cluster" {
       Action    = "sts:AssumeRole"
     }]
   })
+
+  tags = local.tags
 }
 
 resource "aws_iam_role_policy_attachment" "cluster_policy" {
@@ -21,6 +23,10 @@ resource "aws_iam_role_policy_attachment" "cluster_policy" {
 }
 
 resource "aws_eks_cluster" "this" {
+  #checkov:skip=CKV_AWS_58:sin envelope encryption (KMS) para K8s Secrets - cluster demo de un solo hello-world, sin secretos reales que proteger mas alla del cifrado at-rest que EKS ya aplica por default a etcd
+  #checkov:skip=CKV_AWS_39:endpoint publico a proposito - simplifica el acceso a kubectl sin depender de una VPN/bastion, no apto para produccion (mismo criterio que azure-aks-cluster documenta para su propio cluster)
+  #checkov:skip=CKV_AWS_38:mismo motivo que CKV_AWS_39 arriba - sin restriccion de CIDR sobre el endpoint publico, a proposito
+  #checkov:skip=CKV_AWS_37:sin control plane logging - cluster demo de corta vida, sin trafico real que justifique el costo de ingestion en CloudWatch Logs
   name     = var.cluster_name
   role_arn = aws_iam_role.cluster.arn
   version  = var.kubernetes_version
@@ -94,6 +100,8 @@ resource "aws_iam_role" "fargate_pod_execution" {
       }
     }]
   })
+
+  tags = local.tags
 }
 
 # AmazonEKSFargatePodExecutionRolePolicy ya incluye
