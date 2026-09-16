@@ -202,3 +202,14 @@ Consecuencia: **todo PR queda con el CI en rojo** hasta que alguien vuelva a des
 Es una trampa de bootstrapping real, distinta del gotcha de `jalcalaroot-aws-bootstrap`/`jalcalaroot-azure-bootstrap` (esos repos SÍ pueden seguir corriendo CI con el cluster/red destruidos, porque sus identidades de CI viven en un state separado y persistente - el propio "bootstrap"). Acá no hay ese state separado: para poder volver a hacer `terraform plan` sobre este repo hace falta primero recrear el cluster (o al menos las identidades) con credenciales locales amplias, no con el pipeline.
 
 No se resolvió todavía - queda documentado para la próxima vez que se redespliegue, no como bug a arreglar en código hoy.
+
+**Actualización (2026-09-16)**: el cluster se redesplegó (`terraform apply` desde cero, red + EKS + Argo CD + KEDA), asi que `eks-cluster-ci-agent`/`eks-cluster-ci-plan` volvieron a existir - el CI de este repo deberia estar verde de nuevo. Sigue siendo la misma trampa de bootstrapping de fondo: si el cluster se vuelve a destruir para no pagar de más, el CI vuelve a quedar roto hasta el próximo redeploy manual con credenciales locales.
+
+## metrics-server no viene por defecto en EKS, y Fargate reserva el puerto 10250 (2026-09-16)
+
+Necesario para que el trigger `cpu` de KEDA (usado en [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps)) tenga datos reales en vez de `<unknown>`. Instalarlo con el manifiesto oficial tal cual (`components.yaml`) falla en dos pasos, ambos confirmados contra el error real, no adivinados:
+
+1. El kubelet virtual de Fargate expone un certificado self-signed valido solo para `127.0.0.1` - cualquier IP real de pod da `x509: certificate is valid for 127.0.0.1, not <ip>`. Fix: `--kubelet-insecure-tls`.
+2. Con eso solo, el siguiente error es `403 Forbidden` al scrapear el nodo - **no es un problema de RBAC**, es que Fargate reserva el puerto `10250` para su propio uso interno (confirmado contra la doc oficial de AWS, seccion "Considerations" de la guía de metrics-server). Fix real: mover el `--secure-port` propio de metrics-server a `10251` (el Service sigue funcionando solo, su `targetPort` es por nombre `https`, no por número) - metrics-server sigue usando el 10250 para *scrapear* otros nodos, solo su propio puerto de serving cambia.
+
+Ver `k8s-apps/README.md` seccion "Prerequisites" para los comandos exactos.
