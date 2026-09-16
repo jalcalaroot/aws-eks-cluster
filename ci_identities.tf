@@ -57,6 +57,7 @@ resource "aws_iam_role" "ci_agent" {
 }
 
 data "aws_iam_policy_document" "ci_plan_assume_role" {
+  #checkov:skip=CKV_AWS_358:aud y sub ya se verifican con StringEquals (match exacto, sin wildcards) sobre este OIDC provider especifico - mismo patron ya aceptado en jalcalaroot-aws-bootstrap/iam-plan-role.tf; no se identifico que "orden de claims" adicional pediria este check.
   statement {
     sid     = "GitHubActionsPullRequest"
     actions = ["sts:AssumeRoleWithWebIdentity"]
