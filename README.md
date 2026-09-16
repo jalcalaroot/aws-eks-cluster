@@ -49,8 +49,9 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
 | EKS cluster | Managed Kubernetes control plane, `authentication_mode = API` (Access Entries, no `aws-auth` ConfigMap) | [Amazon EKS](https://aws.amazon.com/eks/) |
 | Fargate profiles (`kube-system`, `default`, `argocd`, `keda`, `fargate-container-insights`) | Serverless compute for every pod in the cluster — CoreDNS, the ALB Controller, hello-world, Argo CD, KEDA, and the ADOT Collector | [Fargate Pod execution role](https://docs.aws.amazon.com/eks/latest/userguide/pod-execution-role.html) |
 | AWS Load Balancer Controller (IRSA) | Public entry point; provisions and reconfigures the ALB automatically from Kubernetes `Ingress` resources | [AWS Load Balancer Controller](https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html) |
-| Argo CD (Helm, `argocd` namespace) | GitOps controller — watches [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) and syncs the cluster; UI at `argocd.aws.jalcalaroot.com` | [argo-cd chart](https://github.com/argoproj/argo-helm) |
-| KEDA (Helm, `keda` namespace) | Event-driven pod autoscaling — installed as base platform, no `ScaledObject` configured yet | [KEDA docs](https://keda.sh/docs/latest/) |
+| Argo CD (Helm, `argocd` namespace) | GitOps controller — watches [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) (`applicationset-eks.yaml` + `headlamp-application.yaml`, applied once by hand) and syncs the cluster; UI at `argocd.aws.jalcalaroot.com`. Manages 4 apps: `podinfo`, `game-2048`, `uptime-kuma`, `headlamp` | [argo-cd chart](https://github.com/argoproj/argo-helm) |
+| KEDA (Helm, `keda` namespace) | Event-driven pod autoscaling — `cpu`-trigger `ScaledObject`s on `podinfo`/`game-2048`/`headlamp` (confirmed with a real load test: 2→4 replicas under load, back down after). `uptime-kuma` intentionally has none (single SQLite instance) | [KEDA docs](https://keda.sh/docs/latest/) |
+| metrics-server (`kube-system`) | Required for KEDA's `cpu` trigger — **not** installed by default on EKS. Fargate reserves port `10250` for its own use, so the deployment needs `--secure-port=10251` + `--kubelet-insecure-tls` (self-signed cert only valid for `127.0.0.1`) or it can't scrape anything | [View resource usage with Metrics Server](https://docs.aws.amazon.com/eks/latest/userguide/metrics-server.html) |
 | ADOT Collector (`k8s/container-insights.yaml`, IRSA) | CloudWatch Container Insights metrics (CPU/memory/network per pod) — the standard `amazon-cloudwatch-observability` add-on needs a real node's kubelet/cAdvisor, which Fargate doesn't expose, so this uses AWS's documented ADOT-based approach instead | [Container Insights EKS Fargate](https://aws-otel.github.io/docs/getting-started/container-insights/eks-fargate) |
 | Amazon ECR repository | Hosts the `hello-world` image | [Amazon ECR private repositories](https://docs.aws.amazon.com/AmazonECR/latest/userguide/Repositories.html) |
 | ACM certificates (x2, DNS validation) | One per public host (`eks.*`, `argocd.*`), issued and auto-renewed by AWS, validated via Route 53 CNAME records | [ACM DNS validation](https://docs.aws.amazon.com/acm/latest/userguide/dns-validation.html) |
@@ -168,9 +169,25 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
     helm repo add kedacore https://kedacore.github.io/charts
     helm install keda kedacore/keda --version 2.20.2 -n keda --create-namespace
     ```
-    Installed as base platform infrastructure — no `ScaledObject` configured yet, since there's no app with variable load to scale.
+    `ScaledObject`s live in [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) (podinfo/game-2048/headlamp), not here.
 
-12. **Apply Container Insights** (CloudWatch metrics via ADOT — not Helm, a plain manifest; substitute the placeholders first):
+12. **Install metrics-server** (required for KEDA's `cpu` trigger — not installed by default on EKS, and Fargate reserves port `10250` for its own use):
+    ```bash
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+    kubectl patch deployment metrics-server -n kube-system --type=json -p='[
+      {"op":"replace","path":"/spec/template/spec/containers/0/args","value":["--cert-dir=/tmp","--secure-port=10251","--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname","--kubelet-use-node-status-port","--metric-resolution=15s","--kubelet-insecure-tls"]},
+      {"op":"replace","path":"/spec/template/spec/containers/0/ports/0/containerPort","value":10251}
+    ]'
+    ```
+    `--kubelet-insecure-tls` alone isn't enough — the default port `10250` is reserved on Fargate and returns `403 Forbidden`; moving metrics-server's own serving port to `10251` (Service `targetPort` follows automatically, it's name-based) is what actually fixes it. Confirmed with `kubectl top nodes`/`kubectl get hpa` after.
+
+13. **Bootstrap `k8s-apps`** (tells the Argo CD just installed to start watching/syncing it):
+    ```bash
+    curl -sL https://raw.githubusercontent.com/jalcalaroot/k8s-apps/main/bootstrap/applicationset-eks.yaml | kubectl apply -f -
+    curl -sL https://raw.githubusercontent.com/jalcalaroot/k8s-apps/main/bootstrap/headlamp-application.yaml | kubectl apply -f -
+    ```
+
+14. **Apply Container Insights** (CloudWatch metrics via ADOT — not Helm, a plain manifest; substitute the placeholders first):
     ```bash
     sed -e "s|<CLUSTER_NAME>|$(terraform output -raw cluster_name)|g" \
         -e "s|<ADOT_COLLECTOR_ROLE_ARN>|$(terraform output -raw adot_collector_role_arn)|" \
@@ -180,6 +197,9 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
 
 ```bash
 kubectl delete -f k8s/
+kubectl delete -f https://raw.githubusercontent.com/jalcalaroot/k8s-apps/main/bootstrap/applicationset-eks.yaml
+kubectl delete -f https://raw.githubusercontent.com/jalcalaroot/k8s-apps/main/bootstrap/headlamp-application.yaml
+kubectl delete -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 helm uninstall argocd -n argocd
 kubectl delete ns argocd
 helm uninstall keda -n keda
