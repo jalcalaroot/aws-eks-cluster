@@ -6,20 +6,25 @@ A hello-world container served over HTTPS on a custom domain, running on **Amazo
 
 ```
 Route 53 (aws.jalcalaroot.com)
- ├─ eks.aws.jalcalaroot.com    ──┐
- └─ argocd.aws.jalcalaroot.com ──┤
-                                  ▼
+ ├─ eks.aws.jalcalaroot.com          ──┐
+ ├─ argocd.aws.jalcalaroot.com       ──┤
+ ├─ podinfo.aws.jalcalaroot.com      ──┤
+ ├─ game-2048.aws.jalcalaroot.com    ──┤
+ └─ uptime-kuma.aws.jalcalaroot.com  ──┤
+                                        ▼
        One shared Application Load Balancer (Ingress Group "eks-demo-apps")
-       SNI: one ACM cert per host
-                                  │
+       SNI: one ACM cert per host (5 certs, 1 ALB)
+                                        │
        ───── VPC-internal only below this line ─────
-                                  │
+                                        │
 EKS cluster (control plane, AWS-managed)
  ├─ Fargate Profile "kube-system"
  │    ├─ CoreDNS
- │    └─ ALB Controller (IRSA)
+ │    ├─ ALB Controller (IRSA)
+ │    └─ metrics-server (required for KEDA's cpu trigger, see CLAUDE.md)
  ├─ Fargate Profile "default"
- │    └─ hello-world (Deployment, image: ECR)
+ │    ├─ hello-world (Deployment, image: ECR)
+ │    └─ podinfo / game-2048 / uptime-kuma / headlamp (Argo CD-managed, k8s-apps)
  ├─ Fargate Profile "argocd"
  │    └─ Argo CD (Helm)
  │         ├─ server, repo-server, application-controller,
@@ -28,7 +33,7 @@ EKS cluster (control plane, AWS-managed)
  ├─ Fargate Profile "keda"
  │    └─ KEDA (Helm)
  │         ├─ operator, metrics-apiserver, admission-webhooks
- │         └─ no ScaledObject configured yet - installed as base platform
+ │         └─ ScaledObjects live in k8s-apps (podinfo/game-2048/headlamp)
  └─ Fargate Profile "container-insights"
       └─ ADOT Collector (StatefulSet, IRSA)
            ├─ scrapes /metrics/cadvisor via API server proxy (Fargate has no
@@ -223,6 +228,7 @@ terraform destroy
 | `dns_zone_name` | `aws.jalcalaroot.com` | must already exist |
 | `dns_record_name` | `eks` | final FQDN = `<dns_record_name>.<dns_zone_name>` (`eks.aws.jalcalaroot.com`) |
 | `dns_record_name_argocd` | `argocd` | Argo CD UI FQDN (`argocd.aws.jalcalaroot.com`) |
+| `dns_record_name_podinfo` / `dns_record_name_game_2048` / `dns_record_name_uptime_kuma` | `podinfo` / `game-2048` / `uptime-kuma` | FQDNs for the 3 `k8s-apps` demo apps, same ALB |
 
 ## Outputs
 
@@ -238,6 +244,20 @@ terraform destroy
 | `argocd_fqdn` | Argo CD UI public hostname |
 | `argocd_acm_certificate_arn` | For the Argo CD Ingress annotation |
 | `adot_collector_role_arn` | To annotate the ADOT Collector's ServiceAccount |
+| `demo_apps_fqdns` | Public hostnames for the 3 `k8s-apps` demo apps |
+| `demo_apps_acm_certificate_arns` | ARN per app, for each app's Ingress annotation in `k8s-apps` |
+
+## Public URLs
+
+| App | URL |
+|---|---|
+| hello-world | https://eks.aws.jalcalaroot.com |
+| Argo CD | https://argocd.aws.jalcalaroot.com |
+| podinfo | https://podinfo.aws.jalcalaroot.com |
+| game-2048 | https://game-2048.aws.jalcalaroot.com |
+| uptime-kuma | https://uptime-kuma.aws.jalcalaroot.com |
+
+All 5 share the same Application Load Balancer (`group.name: eks-demo-apps`) via SNI, one ACM certificate per host. The last 3 are deployed and managed by [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) via Argo CD, not by this repo — their `Ingress` manifests live there (`apps/<name>/overlays/eks/ingress.yaml`), referencing the ACM certificate ARNs this repo provisions (`demo_apps_acm_certificate_arns` output above).
 
 ## CI/CD
 
