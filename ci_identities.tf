@@ -98,6 +98,7 @@ resource "aws_iam_role" "ci_plan" {
 
 data "aws_iam_policy_document" "ci_agent_permissions" {
   #checkov:skip=CKV_AWS_356:Resource "*" limitado a acciones Describe/List de EKS/EC2/ECR (AWS no permite scopearlas a nivel de recurso) o a iam:PassRole acotado por condicion iam:PassedToService - ver statements individuales
+  #checkov:skip=CKV_AWS_111:este es precisamente el rol de apply, tiene que poder escribir - cada statement de escritura esta scoped a los tipos de recurso que este proyecto realmente crea (no a "*"), mismo criterio ya usado en jalcalaroot-aws-bootstrap/iam.tf
   statement {
     sid = "EksClusterLifecycle"
 
