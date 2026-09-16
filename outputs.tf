@@ -52,3 +52,13 @@ output "adot_collector_role_arn" {
   description = "ARN a anotar en el ServiceAccount del ADOT Collector (eks.amazonaws.com/role-arn) - ver k8s/container-insights.yaml"
   value       = aws_iam_role.adot_collector.arn
 }
+
+output "demo_apps_fqdns" {
+  description = "Dominios publicos de las 3 apps demo de k8s-apps - los registros A hacia el ALB compartido se crean manualmente, mismo criterio que fqdn/argocd_fqdn arriba"
+  value       = local.demo_apps_fqdns
+}
+
+output "demo_apps_acm_certificate_arns" {
+  description = "ARN por app, para pegar en la annotation alb.ingress.kubernetes.io/certificate-arn del Ingress correspondiente en k8s-apps"
+  value       = { for app, cert in aws_acm_certificate_validation.demo_apps : app => cert.certificate_arn }
+}
