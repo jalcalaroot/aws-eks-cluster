@@ -13,6 +13,8 @@ resource "aws_iam_role" "cluster" {
       Action    = "sts:AssumeRole"
     }]
   })
+
+  tags = local.tags
 }
 
 resource "aws_iam_role_policy_attachment" "cluster_policy" {
@@ -94,6 +96,8 @@ resource "aws_iam_role" "fargate_pod_execution" {
       }
     }]
   })
+
+  tags = local.tags
 }
 
 # AmazonEKSFargatePodExecutionRolePolicy ya incluye
