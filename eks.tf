@@ -67,7 +67,7 @@ resource "aws_eks_access_policy_association" "human_admin" {
 
 resource "aws_eks_access_entry" "ci_agent" {
   cluster_name  = aws_eks_cluster.this.name
-  principal_arn = aws_iam_role.ci_agent.arn
+  principal_arn = data.aws_iam_role.ci_agent.arn
 }
 
 resource "aws_eks_access_policy_association" "ci_agent_admin" {
