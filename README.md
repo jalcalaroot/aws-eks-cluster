@@ -92,7 +92,8 @@ This project consumes an **existing** VPC, DNS zone, and GitHub OIDC provider pr
 
 2. **Apply the infrastructure:**
    ```bash
-   terraform init
+   cp backend.hcl.example backend.hcl   # fill in <AWS_ACCOUNT_ID> (backend.hcl is gitignored)
+   terraform init -backend-config=backend.hcl
    terraform apply \
      -var "network_compute_subnet_ids=[\"subnet-...\", \"subnet-...\"]" \
      -var "network_public_subnet_ids=[\"subnet-...\", \"subnet-...\"]" \
