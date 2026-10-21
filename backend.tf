@@ -6,7 +6,9 @@
 # como el resto de las referencias a este bucket en ci_identities.tf.
 terraform {
   backend "s3" {
-    bucket       = "jalcalaroot-tfstate-740104998573"
+    # bucket = "jalcalaroot-tfstate-<AWS_ACCOUNT_ID>" -> configuracion parcial, no se
+    # versiona (incluye el account ID). Local: terraform init -backend-config=backend.hcl
+    # (ver backend.hcl.example). CI: se deriva de sts get-caller-identity.
     key          = "eks-cluster/terraform.tfstate"
     region       = "us-east-1"
     encrypt      = true

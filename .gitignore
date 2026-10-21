@@ -3,3 +3,6 @@
 *.tfstate.*
 *.tfvars
 policies/*.json
+
+# Backend parcial: el bucket incluye el account ID, solo local
+backend.hcl
