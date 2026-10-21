@@ -59,6 +59,6 @@ output "demo_apps_fqdns" {
 }
 
 output "demo_apps_acm_certificate_arns" {
-  description = "ARN por app, para pegar en la annotation alb.ingress.kubernetes.io/certificate-arn del Ingress correspondiente en k8s-apps"
+  description = "ARN por app, solo referencia/debug - k8s-apps ya no usa la annotation certificate-arn, el ALB Controller descubre el cert por el host de spec.tls"
   value       = { for app, cert in aws_acm_certificate_validation.demo_apps : app => cert.certificate_arn }
 }
