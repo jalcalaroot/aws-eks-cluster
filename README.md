@@ -245,7 +245,7 @@ terraform destroy
 | `argocd_acm_certificate_arn` | For the Argo CD Ingress annotation |
 | `adot_collector_role_arn` | To annotate the ADOT Collector's ServiceAccount |
 | `demo_apps_fqdns` | Public hostnames for the 3 `k8s-apps` demo apps |
-| `demo_apps_acm_certificate_arns` | ARN per app, for each app's Ingress annotation in `k8s-apps` |
+| `demo_apps_acm_certificate_arns` | ARN per app (reference/debug only; `k8s-apps` discovers certs by host) |
 
 ## Public URLs
 
@@ -257,7 +257,7 @@ terraform destroy
 | game-2048 | https://game-2048.aws.jalcalaroot.com |
 | uptime-kuma | https://uptime-kuma.aws.jalcalaroot.com |
 
-All 5 share the same Application Load Balancer (`group.name: eks-demo-apps`) via SNI, one ACM certificate per host. The last 3 are deployed and managed by [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) via Argo CD, not by this repo — their `Ingress` manifests live there (`apps/<name>/overlays/eks/ingress.yaml`), referencing the ACM certificate ARNs this repo provisions (`demo_apps_acm_certificate_arns` output above).
+All 5 share the same Application Load Balancer (`group.name: eks-demo-apps`) via SNI, one ACM certificate per host. The last 3 are deployed and managed by [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps) via Argo CD, not by this repo — their `Ingress` manifests live there (`apps/<name>/overlays/eks/ingress.yaml`), which list their host under `spec.tls` so the AWS Load Balancer Controller auto-discovers the ACM certificate this repo provisions (no ARN or account ID in `k8s-apps`).
 
 ## CI/CD
 
