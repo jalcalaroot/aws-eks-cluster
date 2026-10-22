@@ -68,7 +68,7 @@ Repo creado el 2026-09-08 (`jalcalaroot/aws-eks-cluster`, id numérico propio, p
 - **`terraform-plan.yml`** (PR): `fmt -check`, `validate`, tflint (`tflint-ruleset-aws`), Checkov (bloqueante, `soft_fail: false`, sube SARIF a la pestaña Security del repo), `plan` comentado en el PR con warning si destruye/reemplaza recursos.
 - **`terraform-apply.yml`** (push a `main`): `plan` + `apply` directo, sin schedule periódico — a diferencia de un certificado que necesita renovación manual, el cert de ACM (`acm.tf`) renueva solo mientras exista el registro de validación en Route 53.
 - **Dependabot** (`.github/dependabot.yml`): actualiza versiones de providers Terraform y de las GitHub Actions usadas en los workflows, semanal.
-- **`SECURITY.md`**: reporte privado de vulnerabilidades vía GitHub private vulnerability reporting, no issues públicos.
+- **Política de seguridad**: heredada del repo `.github` de la cuenta (reporte privado vía GitHub private vulnerability reporting, no issues públicos).
 
 Ambos roles de CI (`ci_agent`/`ci_plan`) requieren estas GitHub Actions repository **variables** (no secrets, no son sensibles): `OWNER`, `NETWORK_COMPUTE_SUBNET_IDS` y `NETWORK_PUBLIC_SUBNET_IDS` (como JSON, ej. `["subnet-a","subnet-b"]`), `DNS_ZONE_ID`, `GH_REPO_SUBJECT_PREFIX`, `GH_OIDC_PROVIDER_ARN` (los dos alimentan `TF_VAR_github_repo_subject_prefix`/`TF_VAR_github_oidc_provider_arn`), y `AWS_ROLE_ARN_AGENT`/`AWS_ROLE_ARN_PLAN` (el `role-to-assume` de cada workflow).
 
