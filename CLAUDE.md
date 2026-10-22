@@ -205,6 +205,18 @@ No se resolvió todavía - queda documentado para la próxima vez que se redespl
 
 **Actualización (2026-09-16)**: el cluster se redesplegó (`terraform apply` desde cero, red + EKS + Argo CD + KEDA), asi que `eks-cluster-ci-agent`/`eks-cluster-ci-plan` volvieron a existir - el CI de este repo deberia estar verde de nuevo. Sigue siendo la misma trampa de bootstrapping de fondo: si el cluster se vuelve a destruir para no pagar de más, el CI vuelve a quedar roto hasta el próximo redeploy manual con credenciales locales.
 
+## Identidades de CI en state propio (fix real, 2026-09-28)
+
+Fix de la trampa de arriba: `ci_agent`/`ci_plan` (`aws_iam_role` + sus `aws_iam_role_policy`) se movieron a un root de Terraform separado, [`./ci`](./ci) - state propio (`eks-cluster-ci/terraform.tfstate`, mismo bucket S3). Este proyecto puede destruirse y recrearse cuantas veces haga falta sin que las identidades de CI se vean afectadas.
+
+A diferencia de Azure (donde el `client_id` es un GUID nuevo cada vez que se recrea la identidad), el ARN de un IAM Role es determinista por nombre (`arn:aws:iam::<account>:role/eks-cluster-ci-agent`) - **`AWS_ROLE_ARN_AGENT`/`AWS_ROLE_ARN_PLAN` (GitHub variables) no necesitaron cambiar**, siguen apuntando al mismo ARN de siempre, ahora simplemente respaldado por un rol que no se destruye.
+
+`ci_identities.tf` (en el root principal) ya no crea `ci_agent`/`ci_plan` - los pocos recursos que aun viven aca (`data "aws_iam_role" "ci_agent"`, `data "aws_caller_identity" "current"`) existen solo porque `eks.tf` necesita el ARN del agent para su `aws_eks_access_entry` (RBAC dentro del cluster, que si se destruye/recrea con el ciclo de vida de este root - eso no se movio). Nada mas del root principal referenciaba estos roles directamente: todas las policies de `ci_agent`/`ci_plan` ya usaban ARNs armados por convencion de nombre (`${var.cluster_name}-*`) en vez de referencias directas a recursos de Terraform, asi que la migracion fue mucho mas simple que en Azure (ver `azure-aks-cluster`/`azure-container-apps`, que si necesitaron reemplazar referencias de recurso por `data` sources para las RBAC grants).
+
+**Aplicar `./ci` es un paso manual**, igual que el primer `apply` de cualquier proyecto nuevo - no corre en ningun workflow de CI. Verificado con un `terraform plan` real: 4 to add, aplicado limpio.
+
+Mismo fix aplicado en paralelo a `azure-aks-cluster` y `azure-container-apps` (mismo problema, mismo diagnostico). `jalcalaroot-aws-bootstrap` no lo necesita - sus identidades ya viven en un repo que en si mismo nunca se destruye.
+
 ## metrics-server no viene por defecto en EKS, y Fargate reserva el puerto 10250 (2026-09-16)
 
 Necesario para que el trigger `cpu` de KEDA (usado en [`k8s-apps`](https://github.com/jalcalaroot/k8s-apps)) tenga datos reales en vez de `<unknown>`. Instalarlo con el manifiesto oficial tal cual (`components.yaml`) falla en dos pasos, ambos confirmados contra el error real, no adivinados:
